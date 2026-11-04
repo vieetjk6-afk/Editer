@@ -66,7 +66,11 @@ KIỂM TRA KẾT NỐI PHOTOSHOP
 NẾU CỬA SỔ TỰ TẮT / CÓ LỖI
  - Mọi thứ hiện trên màn hình (kể cả lỗi làm chương trình sập) được ghi vào:
      C:\Users\<tên bạn>\Editer\nhat-ky.txt
+   Mở nhanh: nhấn phím Windows + R, dán dòng dưới rồi Enter:
+     %USERPROFILE%\Editer\nhat-ky.txt
    Gửi file này là biết lỗi ở đâu.
+ - Từ bản 0.4.1: tool THỬ card đồ hoạ trong một tiến trình riêng trước khi dùng — card lỗi
+   thì chỉ tiến trình thử bị tắt, cửa sổ chính vẫn chạy và tự dùng CPU.
  - Muốn chạy để cửa sổ KHÔNG tự tắt: mở thư mục tool, gõ "powershell" vào thanh địa chỉ
    rồi Enter, sau đó gõ (chú ý dấu .\ ở đầu — PowerShell bắt buộc):
      .\editer-anh.exe

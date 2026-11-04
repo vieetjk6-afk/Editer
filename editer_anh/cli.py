@@ -416,6 +416,9 @@ def menu() -> None:
 
 
 def main(argv=None) -> None:
+    if argv is None and len(sys.argv) > 1 and sys.argv[1] == "--thu-card":   # tiến trình con thử card
+        from . import ai
+        sys.exit(ai.probe_main(sys.argv[2:]))
     if argv is None:   # lần gọi đầu tiên (từ dòng lệnh hoặc bấm đúp)
         try:
             sys.stdout.reconfigure(encoding="utf-8")

@@ -71,6 +71,9 @@ def run(selftest: str | None = None) -> None:
 
 def main() -> None:
     """Điểm vào của Editer Anh.exe (cửa sổ). Lỗi thì báo bằng hộp thoại, không im lặng tắt."""
+    if len(sys.argv) > 1 and sys.argv[1] == "--thu-card":   # tiến trình con thử card đồ hoạ
+        from .. import ai
+        sys.exit(ai.probe_main(sys.argv[2:]))
     selftest = None
     if "--tu-kiem-tra" in sys.argv:
         i = sys.argv.index("--tu-kiem-tra")

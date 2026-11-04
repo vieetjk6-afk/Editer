@@ -217,7 +217,8 @@
   <button class="nav" data-view="ps"><svg><use href="#i-ps"/></svg>Kiểm tra Photoshop</button>
   <div class="side-foot">
     <div class="chip" id="chip-style">Phong cách: <b>đang tải…</b></div>
-    <div class="chip warn" id="chip-gpu" hidden>AI đang chạy bằng <b>CPU</b> (lần trước card đồ hoạ bị lỗi)</div>
+    <div class="chip warn" id="chip-gpu" hidden>AI đang chạy bằng <b>CPU</b> (lần trước card đồ hoạ bị lỗi).
+      Kết quả như nhau, chỉ chậm hơn.<br><button class="linkbtn" id="gpu-retry">Thử lại card đồ hoạ</button></div>
     <div class="chip">Ảnh không rời khỏi máy · tool chỉ ghi file .xmp<br><button class="linkbtn" id="open-log">Mở nhật ký</button></div>
   </div>
 </aside>
@@ -628,6 +629,10 @@ function resPs(res) {
 /* ---------- khởi động ---------- */
 $("#o-strength").addEventListener("input", (e) => { $("#o-strength-v").textContent = e.target.value + "%"; });
 $("#open-log").addEventListener("click", () => INFO && API.mo(INFO.nhat_ky));
+$("#gpu-retry").addEventListener("click", async () => {
+  await API.thu_lai_card(); await refreshInfo();
+  toast("Lần chạy tới tool sẽ thử lại card đồ hoạ (thử an toàn — nếu lỗi sẽ tự dùng CPU).");
+});
 async function refreshInfo() {
   INFO = await API.info();
   $("#ver").textContent = "Phiên bản " + INFO.phien_ban;

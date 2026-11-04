@@ -96,6 +96,17 @@ class Api:
     def ping(self) -> str:
         return "ok"
 
+    def thu_lai_card(self) -> dict:
+        """Bỏ đánh dấu "card đồ hoạ lỗi": lần chạy sau thử lại card — an toàn, vì thử trong
+        tiến trình con (nếu card làm sập thì chỉ tiến trình con chết)."""
+        from ..ai import GPU_OFF, GPU_PROBE
+        for f in (GPU_OFF, GPU_PROBE):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+        return self.info()
+
     # ------------------------------------------------------------------ chọn file / thư mục
     def _dialog(self, kind: str, multiple: bool = False, types=()):
         if self._win is None:

@@ -74,6 +74,7 @@ def model_dirs() -> list[Path]:
 
 # ------------------------------------------------------------------ chạy mô hình (CPU / card đồ hoạ)
 GPU_TRYING = Path.home() / "Editer" / "gpu-dang-thu.txt"   # có file này = đang thử card
+GPU_PROBE = Path.home() / "Editer" / "gpu-thu.json"         # kết quả thử card (tiến trình con)
 GPU_OFF = Path.home() / "Editer" / "gpu-tat.txt"           # có file này = không dùng card nữa
 _gpu_notice = [False]
 
@@ -108,6 +109,76 @@ def _gpu_providers():
     return None
 
 
+def _self_cmd() -> list[str]:
+    """Lệnh chạy lại chính chương trình này (để thử card trong tiến trình con)."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable]
+    return [sys.executable, "-m", "editer_anh"]
+
+
+def probe_main(argv: list[str]) -> int:
+    """Chạy TRONG TIẾN TRÌNH CON: tạo phiên DirectML + chạy thử 1 lần.
+    0 = card dùng được. Nếu driver/thư viện làm sập thì chỉ tiến trình con này chết."""
+    try:
+        folder, name, shape = Path(argv[0]), argv[1], tuple(json.loads(argv[2]))
+        if os.environ.get("EDITER_TEST_PROBE") == "crash":   # chỉ dùng trong test
+            import faulthandler
+            faulthandler._sigsegv()
+        import onnxruntime as ort
+        fp16, int8 = folder / f"{name}.fp16.onnx", folder / f"{name}.onnx"
+        path = fp16 if fp16.exists() else int8
+        opts = ort.SessionOptions()
+        opts.log_severity_level = 3
+        opts.enable_mem_pattern = False
+        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        dml = [("DmlExecutionProvider", {"device_id": int(os.environ.get("EDITER_GPU_ID", "0"))}),
+               "CPUExecutionProvider"]
+        sess = ort.InferenceSession(str(path), opts, providers=dml)
+        if sess.get_providers()[0] != "DmlExecutionProvider":
+            return 3
+        inp = sess.get_inputs()[0]
+        sess.run(None, {inp.name: np.zeros(shape, np.float16 if "float16" in inp.type else np.float32)})
+        return 0
+    except Exception:
+        return 3
+
+
+def _gpu_ok(folder: Path, name: str, shape: tuple) -> bool:
+    """Card có chạy được mô hình này không? Thử trong tiến trình con (một lần, nhớ kết quả)."""
+    from . import nhatky
+    try:
+        import onnxruntime as ort
+        ver = ort.__version__
+    except Exception:
+        return False
+    key = f"{ver}|{name}|{os.environ.get('EDITER_GPU_ID', '0')}"
+    try:
+        cache = json.loads(GPU_PROBE.read_text(encoding="utf-8")) if GPU_PROBE.exists() else {}
+    except Exception:
+        cache = {}
+    if key in cache:
+        return bool(cache[key])
+    print("Đang thử chạy AI trên card đồ hoạ (một lần duy nhất, ~10 giây)...", flush=True)
+    import subprocess
+    cmd = _self_cmd() + ["--thu-card", str(folder), name, json.dumps(list(shape))]
+    try:
+        r = subprocess.run(cmd, timeout=180, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, creationflags=0x08000000 if sys.platform == "win32" else 0)
+        ok, why = r.returncode == 0, f"mã thoát {r.returncode}"
+    except Exception as e:
+        ok, why = False, str(e)
+    nhatky.note(f"thử card cho {name}: {'ĐƯỢC' if ok else 'KHÔNG được'} ({why})")
+    if not ok:
+        print("  Card đồ hoạ không chạy được AI này -> dùng CPU (kết quả như nhau, chỉ chậm hơn).", flush=True)
+    cache[key] = ok
+    try:
+        GPU_PROBE.parent.mkdir(parents=True, exist_ok=True)
+        GPU_PROBE.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+    return ok
+
+
 class _Model:
     """Một mô hình ONNX. Có card đồ hoạ thì thử cả card lẫn CPU, ĐO TỐC ĐỘ thật,
     rồi chọn cái nhanh hơn (card yếu / máy ảo đôi khi còn chậm hơn CPU).
@@ -117,9 +188,9 @@ class _Model:
         import onnxruntime as ort
         int8, fp16 = folder / f"{name}.onnx", folder / f"{name}.fp16.onnx"
         cands = []
-        gpu = _gpu_providers()
-        if gpu:
-            cands.append(("card đồ hoạ", fp16 if fp16.exists() else int8, gpu))
+        gpu = _gpu_providers() if fp16.exists() else None   # mô hình nhỏ (int8) chạy CPU là đủ nhanh
+        if gpu and _gpu_ok(folder, name, shape):
+            cands.append(("card đồ hoạ", fp16, gpu))
         cands.append(("CPU", int8 if int8.exists() else fp16, ["CPUExecutionProvider"]))
         best, errors = None, []
         from . import nhatky
