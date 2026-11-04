@@ -452,7 +452,10 @@ def measure(px: np.ndarray, sel: Sel) -> dict:
     lab = _lab(px)
     m = {"tone": np.percentile(lab[sel.glob, 0], TONE_Q)}
     if sel.neutral is not None:
-        m["neutral"] = lab[sel.neutral, 1:].mean(axis=0)
+        # Ám màu của điểm xám tỉ lệ với (L+16): quy về độ sáng chuẩn L=70 để so được "trắng" sáng
+        # (váy, L~92) với "xám" tối hơn (tường, vest xám, L~50) — không thì cân bằng trắng bị đẩy quá tay.
+        nl = lab[sel.neutral]
+        m["neutral"] = (nl[:, 1:] * (86.0 / (nl[:, :1] + 16.0))).mean(axis=0)
     for name in ("skin", "sky", "plant", "clothes"):
         idx = getattr(sel, name)
         if idx is not None:
