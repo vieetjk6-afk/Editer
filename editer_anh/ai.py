@@ -52,6 +52,12 @@ LABELS = [
 ]
 
 
+# Hai nhóm nhãn: bối cảnh/ánh sáng và nội dung — xếp hạng riêng từng nhóm
+SCENE_KEYS = {"trong_nha", "ngoai_troi", "ban_dem", "hoang_hon", "den_vang", "nang_gat", "bong_ram",
+              "nguoc_sang", "nha_tho", "bai_bien", "cay_xanh"}
+CONTENT_KEYS = {"le_cuoi", "tiec", "chan_dung", "nhom_nguoi", "vay_trang", "chi_tiet", "san_khau"}
+
+
 def model_dirs() -> list[Path]:
     dirs = []
     if os.environ.get("EDITER_MODELS"):
@@ -123,10 +129,13 @@ class Embedder:
         """Độ giống với từng nhãn cảnh (cosine), N x số nhãn."""
         return emb @ self.label_emb.T
 
-    def top_labels(self, emb: np.ndarray, k: int = 2) -> list[str]:
+    def top_labels(self, emb: np.ndarray, k: int = 1) -> list[str]:
+        """Nhãn tốt nhất trong từng nhóm: [bối cảnh/ánh sáng..., nội dung...]."""
         names = {key: vi for key, vi, _ in LABELS}
-        sc = self.label_scores(emb[None, :])[0] * 100
-        p = np.exp(sc - sc.max())
-        p /= p.sum()
-        idx = np.argsort(-p)[:k]
-        return [names.get(self.label_keys[i], self.label_keys[i]) for i in idx]
+        sc = self.label_scores(emb[None, :])[0]
+        out = []
+        for group in (SCENE_KEYS, CONTENT_KEYS):
+            idx = [i for i, key in enumerate(self.label_keys) if key in group]
+            idx.sort(key=lambda i: -sc[i])
+            out += [names.get(self.label_keys[i], self.label_keys[i]) for i in idx[:k]]
+        return out

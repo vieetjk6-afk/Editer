@@ -18,6 +18,7 @@ print("giống nhau:\n", sim.round(2))
 assert sim[0, 1] > 0.9, "ảnh lật ngang phải gần như giống hệt"
 assert sim[0, 1] > sim[0, 2] + 0.1, "ảnh khác nội dung phải khác xa hơn"
 for name, x in (("astronaut", v[0]), ("coffee", v[2]), ("chelsea", v[3])):
-    print(name, "->", e.top_labels(x, 4))
-assert "chân dung" in e.top_labels(v[0], 4), "ảnh phi hành gia phải được nhận là chân dung"
+    print(name, "-> bối cảnh:", e.top_labels(x, 3)[:3], "| nội dung:", e.top_labels(x, 3)[3:])
+# Nhãn chỉ để hiển thị/gợi ý; chỉ kiểm tra những gì chắc chắn:
+assert e.top_labels(v[0], 2)[2:].count("chân dung") == 1, "phi hành gia: 'chân dung' phải nằm trong 2 nhãn nội dung đầu"
 print("AI OK")
