@@ -138,6 +138,9 @@ class _Model:
                     opts.enable_mem_pattern = False
                     opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
                 sess = ort.InferenceSession(str(path), opts, providers=provs)
+                if gpu_try and sess.get_providers()[0] == "CPUExecutionProvider":
+                    # onnxruntime không dùng được card (vd máy không có card thật) và tự lùi về CPU
+                    raise RuntimeError("không dùng được card đồ hoạ, đã tự chuyển sang CPU")
                 sec = self._bench(sess, shape)
             except Exception as e:
                 errors.append(f"{label}: {e}")
