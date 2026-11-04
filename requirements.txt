@@ -1,0 +1,5 @@
+numpy>=1.26
+pillow>=10
+rawpy>=0.21
+exifread>=3.0
+scikit-learn>=1.3

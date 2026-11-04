@@ -20,3 +20,6 @@ __pycache__/
 .venv/
 dist/
 build/
+
+# File phong cách đã học (nằm ở máy người dùng)
+*.editer

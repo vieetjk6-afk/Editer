@@ -1,0 +1,29 @@
+EDITER ẢNH — HƯỚNG DẪN NHANH
+============================
+
+Bấm đúp  editer-anh.exe  rồi chọn:
+
+ 1. HỌC PHONG CÁCH (làm 1 lần, học thêm khi có job mới)
+    Kéo thả các thư mục job bạn ĐÃ chỉnh xong (có file .xmp cạnh ảnh RAW).
+    Càng nhiều job, càng nhiều kiểu ánh sáng thì càng chuẩn (nên 2.000+ ảnh).
+    Kết quả lưu ở:  C:\Users\<tên bạn>\Editer\phong-cach.editer
+
+ 2. CHỈNH THEO PHONG CÁCH
+    Kéo thả thư mục RAW của job mới. Tool ghi file .xmp cạnh từng ảnh.
+
+ 3. CHỈNH THEO ẢNH JPG MẪU
+    Kéo thả 1 hoặc vài ảnh JPG có màu bạn muốn, rồi thư mục RAW.
+    Mẹo: chọn ảnh mẫu cùng kiểu cảnh (trong nhà / ngoài trời) cho chuẩn nhất.
+
+Sau đó mở thư mục bằng Adobe Bridge (hoặc mở ảnh bằng Camera Raw): ảnh đã được
+chỉnh sẵn, mọi thanh trượt vẫn chỉnh tiếp được.
+
+AN TOÀN
+ - Tool KHÔNG sửa ảnh RAW. Chỉ tạo file .xmp.
+ - Ảnh nào đã có .xmp (bạn đã chỉnh) sẽ được BỎ QUA.
+ - Bảng chi tiết từng ảnh: editer-bao-cao.csv trong thư mục ảnh.
+
+LƯU Ý CAMERA RAW
+ - Trong Camera Raw > Preferences > File Handling, chọn
+   "Save image settings in: Sidecar .XMP files".
+ - Nếu Bridge vẫn hiện ảnh cũ: chọn ảnh > chuột phải > Purge Cache.

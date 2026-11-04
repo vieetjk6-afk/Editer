@@ -1,0 +1,59 @@
+name: Build Editer Anh (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "editer_anh/**"
+      - "tests/**"
+      - "packaging/**"
+      - "requirements.txt"
+      - ".github/workflows/build-anh.yml"
+    tags:
+      - "anh-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cài thư viện
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller scikit-image
+
+      - name: Test
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python tests/test_match.py
+          python tests/test_e2e.py "$env:RUNNER_TEMP\e2e"
+
+      - name: Đóng gói .exe
+        run: |
+          pyinstaller --noconfirm --onedir --console --name editer-anh `
+            --collect-all sklearn --collect-all rawpy packaging/run.py
+          Copy-Item packaging/HUONG-DAN.txt dist/editer-anh/
+          Compress-Archive -Path dist/editer-anh -DestinationPath Editer-Anh-Windows.zip
+
+      - name: Thử bản .exe
+        run: dist/editer-anh/editer-anh.exe --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Editer-Anh-Windows
+          path: Editer-Anh-Windows.zip
+
+      - name: Tạo Release (khi đẩy tag anh-v*)
+        if: startsWith(github.ref, 'refs/tags/anh-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Editer-Anh-Windows.zip
