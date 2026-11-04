@@ -266,6 +266,7 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
     finally:
         if ps_obj is not None:
             psmod.cleanup(folder)
+            ps_obj.restore()
     gui_info = {"mo_phong": info.get("mo_phong"), "camera_raw": info.get("camera_raw"),
                 "ref_found": found, "photoshop": ps_obj is not None,
                 "anh_dai_dien": info.get("anh_dai_dien", []), "preset": None,
@@ -321,6 +322,7 @@ def cmd_kiem_tra_ps(a) -> dict:
             img = ps_obj.render_raw(p, xmp.build_xmp(None, out, crv), psmod.workdir_for(p.parent))
         finally:
             psmod.cleanup(p.parent)
+            ps_obj.restore()
         _log(f"  OK: {img.shape[1]}x{img.shape[0]} px trong {time.time() - t:.1f}s, màu trung bình {img.reshape(-1, 3).mean(0).round()}")
         res["anh"], res["giay"] = img, round(time.time() - t, 1)
     return res

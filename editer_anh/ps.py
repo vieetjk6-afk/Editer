@@ -65,10 +65,23 @@ class Photoshop:
             pythoncom.CoInitialize()
             app = win32com.client.Dispatch("Photoshop.Application")
             try:
-                app.DisplayDialogs = 3       # không hiện hộp thoại
+                prev = int(app.DisplayDialogs)
+                # 3 = "không hộp thoại" còn sót từ lần chạy trước -> trả về mặc định (2 = chỉ báo lỗi)
+                self._dialogs = prev if prev in (1, 2) else 2
+                app.DisplayDialogs = 3       # không hiện hộp thoại trong lúc tool dựng ảnh
             except Exception:
                 pass
         self.app = app
+
+    _dialogs: int | None = None
+
+    def restore(self) -> None:
+        """Trả lại chế độ hộp thoại như cũ: mở ảnh RAW bằng tay sau đó vẫn hiện Camera Raw."""
+        if self._dialogs is not None:
+            try:
+                self.app.DisplayDialogs = self._dialogs
+            except Exception:
+                pass
 
     def js(self, code: str) -> str:
         return str(self.app.DoJavaScript(code))
@@ -136,7 +149,9 @@ def photoshop_exe() -> str | None:
         if found:
             return str(found[-1])        # bản mới nhất (tên thư mục có năm: 2024, 2025...)
     try:
-        p = Path(str(Photoshop().app.Path)) / "Photoshop.exe"
+        ps_ = Photoshop()
+        p = Path(str(ps_.app.Path)) / "Photoshop.exe"
+        ps_.restore()
         return str(p) if p.exists() else None
     except Exception:
         return None
