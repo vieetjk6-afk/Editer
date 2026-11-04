@@ -3,4 +3,9 @@ pillow>=10
 rawpy>=0.21
 exifread>=3.0
 scikit-learn>=1.3
-onnxruntime>=1.17
+scipy>=1.11
+# AI: Windows dùng bản DirectML (chạy được trên card đồ hoạ NVIDIA/AMD/Intel, tự lui về CPU)
+onnxruntime>=1.17; sys_platform != "win32"
+onnxruntime-directml>=1.17; sys_platform == "win32"
+# Điều khiển Photoshop (Camera Raw thật) để kiểm tra màu
+pywin32>=306; sys_platform == "win32"

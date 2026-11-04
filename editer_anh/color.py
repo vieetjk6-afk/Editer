@@ -198,3 +198,46 @@ def rgb_to_hsv(rgb01: np.ndarray) -> np.ndarray:
     h = h * 60.0
     s = np.where(mx > 1e-9, d / np.maximum(mx, 1e-9), 0.0)
     return np.stack([h, s, mx], axis=-1)
+
+
+def hsv_to_rgb(hsv: np.ndarray) -> np.ndarray:
+    """H (độ), S, V (0..1) -> sRGB 0..1."""
+    h = (hsv[..., 0] % 360.0) / 60.0
+    s, v = hsv[..., 1], hsv[..., 2]
+    i = np.floor(h).astype(int) % 6
+    f = h - np.floor(h)
+    p, q, t = v * (1 - s), v * (1 - s * f), v * (1 - s * (1 - f))
+    r = np.choose(i, [v, q, p, p, t, v])
+    g = np.choose(i, [t, v, v, q, p, p])
+    b = np.choose(i, [p, p, t, v, v, q])
+    return np.stack([r, g, b], axis=-1)
+
+
+def delta_e2000(lab1: np.ndarray, lab2: np.ndarray) -> np.ndarray:
+    """Độ lệch màu CIEDE2000 (ΔE < 1: mắt gần như không thấy; < 2-3: rất gần)."""
+    lab1, lab2 = np.asarray(lab1, float), np.asarray(lab2, float)
+    L1, a1, b1 = lab1[..., 0], lab1[..., 1], lab1[..., 2]
+    L2, a2, b2 = lab2[..., 0], lab2[..., 1], lab2[..., 2]
+    C1, C2 = np.hypot(a1, b1), np.hypot(a2, b2)
+    Cm = (C1 + C2) / 2
+    G = 0.5 * (1 - np.sqrt(Cm ** 7 / (Cm ** 7 + 25.0 ** 7)))
+    a1p, a2p = a1 * (1 + G), a2 * (1 + G)
+    C1p, C2p = np.hypot(a1p, b1), np.hypot(a2p, b2)
+    h1p = np.degrees(np.arctan2(b1, a1p)) % 360
+    h2p = np.degrees(np.arctan2(b2, a2p)) % 360
+    dLp, dCp = L2 - L1, C2p - C1p
+    dh = h2p - h1p
+    dh = np.where(C1p * C2p == 0, 0, np.where(dh > 180, dh - 360, np.where(dh < -180, dh + 360, dh)))
+    dHp = 2 * np.sqrt(C1p * C2p) * np.sin(np.radians(dh / 2))
+    Lpm, Cpm = (L1 + L2) / 2, (C1p + C2p) / 2
+    hs = h1p + h2p
+    hpm = np.where(C1p * C2p == 0, hs,
+                   np.where(np.abs(h1p - h2p) <= 180, hs / 2, np.where(hs < 360, (hs + 360) / 2, (hs - 360) / 2)))
+    T = (1 - 0.17 * np.cos(np.radians(hpm - 30)) + 0.24 * np.cos(np.radians(2 * hpm))
+         + 0.32 * np.cos(np.radians(3 * hpm + 6)) - 0.20 * np.cos(np.radians(4 * hpm - 63)))
+    dtheta = 30 * np.exp(-(((hpm - 275) / 25) ** 2))
+    Rc = 2 * np.sqrt(Cpm ** 7 / (Cpm ** 7 + 25.0 ** 7))
+    Sl = 1 + 0.015 * (Lpm - 50) ** 2 / np.sqrt(20 + (Lpm - 50) ** 2)
+    Sc, Sh = 1 + 0.045 * Cpm, 1 + 0.015 * Cpm * T
+    Rt = -np.sin(np.radians(2 * dtheta)) * Rc
+    return np.sqrt((dLp / Sl) ** 2 + (dCp / Sc) ** 2 + (dHp / Sh) ** 2 + Rt * (dCp / Sc) * (dHp / Sh))

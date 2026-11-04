@@ -15,12 +15,30 @@ Bấm đúp  editer-anh.exe  rồi chọn:
  2. CHỈNH THEO PHONG CÁCH
     Kéo thả thư mục RAW của job mới. Tool ghi file .xmp cạnh từng ảnh.
 
- 3. CHỈNH THEO ẢNH JPG MẪU
+ 3. CHÉP MÀU THEO ẢNH JPG MẪU
     Kéo thả 1 hoặc vài ảnh JPG có màu bạn muốn, rồi thư mục RAW.
-    Mẹo: chọn ảnh mẫu cùng kiểu cảnh (trong nhà / ngoài trời) cho chuẩn nhất.
+    - AI tìm DA, TRẮNG (váy, áo, tường), TRỜI, CÂY trong ảnh mẫu và ảnh của bạn, rồi
+      chép màu theo từng vùng: da theo da, trắng theo trắng... + tông sáng tối + ám màu
+      vùng tối/sáng + các màu khác.
+    - Chọn "c" khi được hỏi Photoshop: Photoshop sẽ tự mở vài ảnh đại diện bằng Camera Raw
+      THẬT, tool đo màu, sửa, dựng lại (vài lượt) cho tới khi khớp. Cuối cùng tool in độ
+      lệch đo được, ví dụ "da ΔE 1.2, trắng ΔE 0.9":
+        ΔE dưới 2: mắt gần như không phân biệt | 2-5: gần | trên 5: còn khác rõ
+      Không dùng Photoshop thì tool chỉ ước lượng (nhanh hơn, kém chính xác hơn).
+    - Có thể lưu màu chép được thành PRESET Camera Raw (nhóm "Editer") để dùng lại bằng
+      tay cho ảnh khác. Preset chỉ có phần màu, không có cân bằng trắng/exposure.
+    Mẹo: ảnh mẫu càng giống kiểu cảnh (trong nhà / ngoài trời, có người) càng chuẩn.
+    Ảnh mẫu là bản đã chỉnh của chính 1 ảnh trong thư mục thì tool tự nhận ra và khớp theo
+    đúng ảnh đó.
 
 Sau đó mở thư mục bằng Adobe Bridge (hoặc mở ảnh bằng Camera Raw): ảnh đã được
 chỉnh sẵn, mọi thanh trượt vẫn chỉnh tiếp được.
+
+CARD ĐỒ HOẠ (VGA)
+ - Tool tự thử chạy AI trên card đồ hoạ (DirectML: NVIDIA/AMD/Intel) và trên CPU, đo tốc
+   độ thật rồi chọn cái nhanh hơn. Kết quả như nhau, chỉ khác tốc độ.
+ - Có card đủ nhanh, tool phân vùng MỌI ảnh (dùng độ sáng da để chỉnh exposure từng ảnh).
+   Chỉ có CPU thì chỉ phân vùng ảnh đại diện (thêm --vung-tat-ca nếu muốn đủ).
 
 AI HIỂU ẢNH (chạy trên máy, không cần mạng/đăng nhập)
  - Mô hình CLIP xem từng ảnh để biết nội dung: trong nhà/ngoài trời, tiệc, làm lễ,
@@ -33,6 +51,11 @@ AN TOÀN
  - Tool KHÔNG sửa ảnh RAW. Chỉ tạo file .xmp.
  - Ảnh nào đã có .xmp (bạn đã chỉnh) sẽ được BỎ QUA.
  - Bảng chi tiết từng ảnh: editer-bao-cao.csv trong thư mục ảnh.
+
+KIỂM TRA KẾT NỐI PHOTOSHOP
+ - Mở cửa sổ dòng lệnh ở thư mục tool, chạy:
+     editer-anh.exe kiem-tra-photoshop "D:\anh\IMG_0001.NEF"
+   Photoshop sẽ mở thử 1 ảnh bằng Camera Raw rồi đóng lại.
 
 LƯU Ý CAMERA RAW
  - Trong Camera Raw > Preferences > File Handling, chọn

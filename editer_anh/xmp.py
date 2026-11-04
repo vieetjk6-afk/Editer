@@ -48,9 +48,13 @@ DETAIL_KEYS = [
 
 # Cách Camera Raw ghi số: có dấu +, số chữ số thập phân
 _FMT_2DEC = {"Exposure2012"}
-_FMT_UNSIGNED = {"Temperature", "ColorGradeShadowHue", "ColorGradeMidtoneHue",
-                 "ColorGradeHighlightHue", "ColorGradeShadowSat", "ColorGradeMidtoneSat",
-                 "ColorGradeHighlightSat", "ColorGradeBlending", "ColorGradeBalance"}
+# Lưu ý: Camera Raw lưu bánh xe Color Grading vùng TỐI/SÁNG bằng tên cũ
+# SplitToningShadowHue/Saturation, SplitToningHighlightHue/Saturation (+ SplitToningBalance);
+# chỉ vùng giữa và tổng thể mới dùng ColorGradeMidtone*/ColorGradeGlobal*.
+_FMT_UNSIGNED = {"Temperature", "ColorGradeMidtoneHue", "ColorGradeMidtoneSat", "ColorGradeBlending",
+                 "ColorGradeGlobalHue", "ColorGradeGlobalSat",
+                 "SplitToningShadowHue", "SplitToningShadowSaturation",
+                 "SplitToningHighlightHue", "SplitToningHighlightSaturation"}
 
 
 def fmt_value(key: str, val) -> str:
@@ -98,6 +102,22 @@ def read_settings(path: str | Path) -> dict:
             break
     masks = [li.attrib.get(CRS + "What", "") for li in root.iter(RDF + "li") if CRS + "MaskName" in li.attrib or li.attrib.get(CRS + "What", "").startswith("Mask/")]
     return {"crs": crs, "model": model, "masks": masks}
+
+
+def read_curve(path: str | Path, name: str = "ToneCurvePV2012") -> list[tuple[int, int]] | None:
+    """Các điểm Tone Curve (x, y) trong file .xmp, không có thì None."""
+    desc = _desc_of(_parse(Path(path)))
+    el = desc.find(f"crs:{name}", NS)
+    if el is None:
+        return None
+    pts = []
+    for li in el.iter(RDF + "li"):
+        try:
+            x, y = (int(float(v)) for v in (li.text or "").split(","))
+            pts.append((x, y))
+        except ValueError:
+            continue
+    return pts or None
 
 
 def number(crs: dict, key: str) -> float | None:
@@ -209,6 +229,51 @@ def build_xmp(template_xml: str | None, values: dict, curve: list[tuple[int, int
     rdf.append(desc)
     ET.indent(xmpmeta, space=" ")
     return ET.tostring(xmpmeta, encoding="unicode") + "\n"
+
+
+_NOT_IN_PRESET = {"WhiteBalance", "Temperature", "Tint", "Exposure2012"}
+
+
+def build_preset(name: str, values: dict, curve: list[tuple[int, int]] | None,
+                 group: str = "Editer") -> str:
+    """Preset Camera Raw (chỉ phần "look": curve, HSL, color grading...). Không chứa
+    cân bằng trắng / exposure vì hai thứ đó phải theo từng ảnh."""
+    import uuid
+    desc = ET.Element(RDF + "Description", {RDF + "about": ""})
+    head = {"PresetType": "Normal", "Cluster": "", "UUID": uuid.uuid4().hex.upper(),
+            "SupportsAmount2": "False", "SupportsAmount": "False", "SupportsColor": "True",
+            "SupportsMonochrome": "True", "SupportsHighDynamicRange": "True",
+            "SupportsNormalDynamicRange": "True", "SupportsSceneReferred": "True",
+            "SupportsOutputReferred": "True", "RequiresRGBTables": "False",
+            "CameraModelRestriction": "", "Copyright": "", "ContactInfo": "",
+            "Version": "18.0", "ProcessVersion": "15.4"}
+    for k, v in head.items():
+        desc.set(CRS + k, v)
+    for k, v in values.items():
+        if k not in _NOT_IN_PRESET:
+            desc.set(CRS + k, fmt_value(k, v))
+    if curve:
+        desc.set(CRS + "ToneCurveName2012", "Custom")
+    desc.set(CRS + "HasSettings", "True")
+    XL = "{http://www.w3.org/XML/1998/namespace}lang"
+    for tag, text in (("Name", name), ("ShortName", ""), ("SortName", ""), ("Group", group), ("Description", "")):
+        alt = ET.SubElement(ET.SubElement(desc, CRS + tag), RDF + "Alt")
+        li = ET.SubElement(alt, RDF + "li", {XL: "x-default"})
+        li.text = text or None
+    if curve:
+        seq = ET.SubElement(ET.SubElement(desc, CRS + "ToneCurvePV2012"), RDF + "Seq")
+        for x, y in curve:
+            ET.SubElement(seq, RDF + "li").text = f"{int(x)}, {int(y)}"
+    xmpmeta = ET.Element("{%s}xmpmeta" % NS["x"], {"{%s}xmptk" % NS["x"]: "Editer"})
+    ET.SubElement(xmpmeta, RDF + "RDF").append(desc)
+    ET.indent(xmpmeta, space=" ")
+    return ET.tostring(xmpmeta, encoding="unicode") + "\n"
+
+
+def preset_dir() -> Path:
+    """Thư mục preset của Camera Raw trên Windows."""
+    import os
+    return Path(os.environ.get("APPDATA", Path.home())) / "Adobe" / "CameraRaw" / "Settings"
 
 
 def write_sidecar(raw_path: str | Path, content: str, overwrite: bool = False) -> str:

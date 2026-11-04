@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.2)
+## Editer Ảnh (bản 0.3)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén, bấm đúp `editer-anh.exe`.
@@ -22,9 +22,20 @@ Có 3 chức năng:
    độ lệch trung bình, đo bằng kiểm tra chéo trên chính ảnh của bạn.
 2. **Chỉnh theo phong cách**: ghi `.xmp` cho thư mục RAW mới. Ảnh cùng cảnh (chia theo
    giờ chụp) được kéo về cùng tông màu.
-3. **Chỉnh theo JPG mẫu**: từng ảnh được chỉnh cân bằng trắng + exposure theo ảnh mẫu.
-   Cả lô dùng chung Tone Curve + HSL + Color Grading, tính từ toàn bộ lô so với ảnh mẫu.
-   Có thể giữ độ nét, khử nhiễu và mask da/tóc từ phong cách của bạn.
+3. **Chép màu theo JPG mẫu** (0.3, `editer_anh/look.py`):
+   - AI phân vùng (SegFormer, ONNX) tìm **da, trắng/trung tính, trời, cây** trên ảnh mẫu và
+     ảnh RAW. Các số đo cần khớp: màu da, điểm trắng, trời, cây, phân bố sáng tối, ám màu
+     vùng tối/sáng, 8 dải màu.
+   - Tìm thông số Camera Raw (Nhiệt độ màu, Tint, Exposure, Tone Curve, HSL, Color Grading,
+     Saturation/Vibrance) bằng cách mô phỏng thanh trượt và tối ưu. Có phạt thay đổi lớn
+     để không ra thông số cực đoan, và khoá độ dốc curve trong khoảng 0,5–1,8.
+   - `--photoshop`: Photoshop (Camera Raw thật) dựng các ảnh đại diện, tool đo ΔE thật rồi
+     sửa lặp lại. Mỗi lượt học "độ mạnh thật" của từng nhóm thanh trượt, bù chênh lệch
+     thật/mô phỏng, dùng vùng tin cậy và bỏ lượt tệ hơn. Kết quả in ra là **ΔE đo trên ảnh
+     Camera Raw dựng thật**.
+   - Cân bằng trắng và exposure được chuyển từ ảnh đại diện sang cả lô, theo điểm trắng và
+     độ sáng da của từng ảnh.
+   - `--luu-preset TÊN`: lưu phần màu thành preset Camera Raw.
 
 **AI hiểu ảnh (0.2):** mô hình CLIP (ONNX, ~90MB, chạy CPU trên máy, không cần mạng) biến
 mỗi ảnh thành "dấu vân tay nội dung". Dấu vân tay này được dùng để:
@@ -46,12 +57,18 @@ editer-anh chinh <thư mục RAW> --mau-jpg mau.jpg [--do-manh 0.85]
 ```
 
 Giới hạn hiện tại:
-- Tool không có bộ dựng ảnh của Camera Raw. Khớp màu được ước lượng trên ảnh xem trước
-  nhúng trong RAW, nên là điểm xuất phát rất gần, không phải khớp tuyệt đối.
+- Không có Photoshop thì khớp màu chỉ là ước lượng trên ảnh xem trước nhúng trong RAW.
+- Thử với "Camera Raw giả" (cố tình lệch HSL/grading khoảng 1,6 lần so với mô phỏng): vòng
+  kiểm tra đưa độ lệch trung bình từ khoảng 16 xuống khoảng 3–4 sau 6 lần dựng (da ΔE
+  khoảng 1–2). Chưa đo với Camera Raw thật.
 - Mask AI (da, tóc) được mang sang ảnh mới, nhưng chưa thử thực tế việc Camera Raw có
   tự tính lại mask hay không.
+- Bản ≤ 0.2 ghi Color Grading bằng khoá Camera Raw không hiểu (`ColorGradeShadowHue`),
+  nên phần đó không có tác dụng. Đã sửa ở bản 0.3 (`SplitToning...`).
 
-Chạy test: `python tests/test_match.py` và `python tests/test_e2e.py <thư mục tạm>`.
+Chạy test: `python tests/test_look.py`, `python tests/test_ps.py`,
+`python tests/test_e2e.py <thư mục tạm>`. Test có AI cần mô hình: `python packaging/get_model.py models`
+(cần mạng), hoặc mô hình giả `python tests/make_dummy_model.py <thư mục>` + `EDITER_MODELS=<thư mục>`.
 
 ## Gửi dữ liệu mẫu
 

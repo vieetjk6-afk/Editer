@@ -1,6 +1,5 @@
 """Thử toàn bộ: tạo job giả (DNG + XMP theo một quy luật biết trước),
 học, rồi chỉnh lô mới và kiểm tra có tìm ra quy luật đó không."""
-import glob
 import os
 import re
 import shutil
@@ -83,4 +82,5 @@ run("chinh", str(WORK / "moi"), "--mau-jpg", str(WORK / "mau.jpg"), "--phong-cac
 assert len(list((WORK / "moi").glob("*.xmp.bak"))) == 30
 s = xmp.read_settings(sorted((WORK / "moi").glob("*.xmp"))[0])["crs"]
 assert s["CameraProfile"] == "Adobe Color" and s["ToneCurveName2012"] == "Custom"
+assert "SplitToningShadowHue" in s and "ColorGradeShadowHue" not in s, "Color Grading phải dùng khoá Camera Raw hiểu"
 print("E2E OK")

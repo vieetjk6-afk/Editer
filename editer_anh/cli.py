@@ -2,7 +2,8 @@
 
   hoc    <thư mục job đã chỉnh>...  -o phong-cach.editer
   chinh  <thư mục RAW> --phong-cach phong-cach.editer
-  chinh  <thư mục RAW> --mau-jpg mau.jpg [--phong-cach ...]
+  chinh  <thư mục RAW> --mau-jpg mau.jpg [--photoshop] [--luu-preset TÊN] [--phong-cach ...]
+  kiem-tra-photoshop [ảnh RAW]
 """
 from __future__ import annotations
 
@@ -16,7 +17,8 @@ from pathlib import Path
 
 import numpy as np
 
-from . import __version__, color, match, raw, style, xmp
+from . import __version__, color, look, raw, style, xmp
+from . import ps as psmod
 
 # Đặt tất cả về 0 khi chỉnh theo JPG (để kết quả không phụ thuộc mặc định của máy)
 _NEUTRAL = {
@@ -26,7 +28,6 @@ _NEUTRAL = {
     "ColorGradeMidtoneHue": 0, "ColorGradeMidtoneSat": 0, "ColorGradeShadowLum": 0,
     "ColorGradeMidtoneLum": 0, "ColorGradeHighlightLum": 0, "ColorGradeBlending": 50,
     "ColorGradeBalance": 0, "ColorGradeGlobalHue": 0, "ColorGradeGlobalSat": 0, "ColorGradeGlobalLum": 0,
-    "SplitToningShadowSaturation": 0, "SplitToningHighlightSaturation": 0,
     "CameraProfile": "Adobe Color", "ProcessVersion": "15.4", "Version": "18.0",
     "LensProfileEnable": 1,
 }
@@ -142,47 +143,18 @@ def cmd_chinh(a) -> None:
     for sc in sorted(scene_names)[:15]:
         _log(f"  cảnh {sc + 1}: {scene_names[sc]} ({scenes.count(sc)} ảnh)")
 
-    curve = None
     if a.mau_jpg:
-        refs = [raw.load_image(p, 512) for p in a.mau_jpg]
-        ref = match.merge_refs(refs)
-        stats = [match.Stats.of(p.preview, 20000, i) for i, p in enumerate(photos)]
-        values = []
-        for s in stats:
-            dm, dt, dev = match.wb_exposure(s, ref, a.do_manh)
-            values.append({"d_mired": dm, "d_tint": dt, "Exposure2012": dev})
-        style.smooth_by_scene(values, scenes, ("d_mired", "d_tint", "Exposure2012"), 0.4)
-        sims = [match.simulate(s, v["d_mired"], v["d_tint"], v["Exposure2012"]) for s, v in zip(stats, values)]
-        curve, look = match.batch_look(sims, ref)
-        all_vals = []
-        for ph, v in zip(photos, values):
-            out = dict(_NEUTRAL)
-            if m:
-                tattrs = xmp.template_attrs(m["templates"].get(ph.model) or m["templates"][m["default_model"]])
-                for k in xmp.DETAIL_KEYS:
-                    if k in tattrs:
-                        out[k] = tattrs[k]
-                out["Version"] = tattrs.get("Version", out["Version"])
-            out.update(look)
-            if ph.as_shot_temp:
-                mir = color.mired(ph.as_shot_temp) + v["d_mired"]
-                out["WhiteBalance"] = "Custom"
-                out["Temperature"] = float(min(max(1e6 / max(mir, 20.0), 2000), 50000))
-                out["Tint"] = float(min(max((ph.as_shot_tint or 0) + v["d_tint"], -150), 150))
-            else:
-                out["WhiteBalance"] = "As Shot"
-            out["Exposure2012"] = v["Exposure2012"]
-            all_vals.append(out)
-        templates = [_masks_only(m, ph, a.khong_mask) for ph in photos]
+        all_vals, curves, templates = _copy_color(a, folder, m, photos, scenes, embs, emb_model)
     else:
         preds = style.predict(m, photos, embs if m.get("ai") else None)
         style.smooth_by_scene(preds, scenes)
         all_vals = [_values_from_style(m, ph, pr) for ph, pr in zip(photos, preds)]
         templates = [_template_for(m, ph, a.khong_mask) for ph in photos]
+        curves = [None] * len(photos)
 
     rows, cnt = [], {"ghi": 0, "de": 0, "bo-qua": 0, "thu": 0}
-    for r, ph, sc, v, tpl in zip(raws, photos, scenes, all_vals, templates):
-        content = xmp.build_xmp(tpl, v, curve, tool_name=f"Editer {__version__}")
+    for r, ph, sc, v, tpl, crv in zip(raws, photos, scenes, all_vals, templates, curves):
+        content = xmp.build_xmp(tpl, v, crv, tool_name=f"Editer {__version__}")
         status = "thu" if a.thu else xmp.write_sidecar(r, content, a.ghi_de)
         cnt[status] += 1
         rows.append({
@@ -204,13 +176,126 @@ def cmd_chinh(a) -> None:
         _log(f"  {row['anh']:24s} cảnh {row['canh']:<3} {row['Temperature']!s:>5}K tint {row['Tint']!s:>4} exp {row['Exposure']}")
     if len(rows) > 12:
         _log(f"  ... và {len(rows) - 12} ảnh khác")
-    if curve:
-        _log(f"Tone curve chung: {curve}")
+    if curves and curves[0]:
+        _log(f"Tone curve chung: {curves[0]}")
     _log(f"\nXONG: ghi mới {cnt['ghi']}, ghi đè {cnt['de']} (bản cũ giữ ở .xmp.bak), chạy thử {cnt['thu']}.")
     if report:
         _log(f"Bảng chi tiết: {report}")
     if not a.thu:
         _log("Mở thư mục bằng Adobe Bridge hoặc Camera Raw để xem và chỉnh tiếp.")
+
+
+def _compose_jpg(m: dict | None, ph: raw.Photo, lk: look.Look, shot: look.Shot, no_mask: bool):
+    """Thông số .xmp khi chép màu: nền trung tính + (độ nét, khử nhiễu từ phong cách) + look."""
+    out = dict(_NEUTRAL)
+    if m:
+        tattrs = xmp.template_attrs(m["templates"].get(ph.model) or m["templates"][m["default_model"]])
+        for k in xmp.DETAIL_KEYS:
+            if k in tattrs:
+                out[k] = tattrs[k]
+        out["Version"] = tattrs.get("Version", out["Version"])
+    vals, crv = look.xmp_values(lk, shot)
+    out.update(vals)
+    return out, crv, _masks_only(m, ph, no_mask)
+
+
+def _blend(lk: look.Look, shots: list, cams: list, s: float):
+    """Chép màu một phần (--do-manh < 1): đi một đoạn từ ảnh gốc tới kết quả."""
+    if s >= 0.999:
+        return lk, shots
+    base = look.Look()
+    mix = look.Look(base.curve + s * (lk.curve - base.curve), s * lk.hue, s * lk.sat, s * lk.lum,
+                    s * lk.grade, s * lk.saturation, s * lk.vibrance)
+    out = []
+    for sh, c in zip(shots, cams):
+        m = None if (sh.mired is None or c.mired is None) else c.mired + s * (sh.mired - c.mired)
+        t = None if (sh.tint is None or c.tint is None) else c.tint + s * (sh.tint - c.tint)
+        out.append(look.Shot(m, t, s * sh.ev))
+    return mix, out
+
+
+def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, embs, emb_model):
+    from . import ai
+    seg = None if a.khong_ai else ai.Segmenter.get()
+    if seg:
+        _log(f"AI phân vùng (da, trắng, trời, cây): BẬT ({seg.device}, ~{seg.sec * 1000:.0f} ms/ảnh)")
+    else:
+        _log("AI phân vùng: TẮT — chỉ khớp tông sáng tối, điểm trắng và 8 dải màu.")
+    seg_all = bool(seg) and (seg.fast or a.vung_tat_ca)
+    if seg and not seg_all:
+        _log("  (chỉ phân vùng ảnh đại diện vì máy đang chạy CPU — thêm --vung-tat-ca để phân vùng mọi ảnh)")
+    segment = seg.segment if seg else None
+    ref = look.load_reference(a.mau_jpg, segment, emb_model)
+    found = ref.sel.found()
+    _log("Ảnh mẫu: thấy " + (", ".join(found) if found else "không có vùng đặc biệt (chỉ khớp màu chung)"))
+    ps_obj = None
+    if a.photoshop:
+        _log("Đang kết nối Photoshop...")
+        ps_obj, msg = psmod.check()
+        if ps_obj:
+            _log(f"  Đã kết nối {msg} — Camera Raw thật sẽ dựng ảnh để kiểm tra màu.")
+        else:
+            _log(f"  Không kết nối được Photoshop ({msg}) — dùng ước lượng mô phỏng.")
+    factory = None
+    if ps_obj is not None:
+        work = psmod.workdir_for(folder)
+
+        def factory(rep_photos):
+            def render(i, lk, shot):
+                vals, crv, tpl = _compose_jpg(m, rep_photos[i], lk, shot, a.khong_mask)
+                return ps_obj.render_raw(Path(rep_photos[i].path), xmp.build_xmp(tpl, vals, crv), work, a.co_anh)
+            return render
+    n_reps = a.so_anh_dai_dien or (4 if ps_obj else 6)
+    try:
+        lk, shots, info = look.copy_color(photos, scenes, embs, ref, segment, _log, factory,
+                                          n_reps, a.so_luot, seg_all)
+    finally:
+        if ps_obj is not None:
+            psmod.cleanup(folder)
+    if "camera_raw" in info:
+        _log(f"KẾT QUẢ ĐO TRÊN CAMERA RAW (ảnh đại diện): {look.fmt_report(info['camera_raw'])}")
+    else:
+        _log(f"Ước lượng (chưa kiểm tra bằng Camera Raw): {look.fmt_report(info['mo_phong'])}")
+    _log("  (ΔE dưới 2: mắt gần như không phân biệt; 2-5: gần; trên 5: còn khác rõ)")
+    cams = [look.Shot(1e6 / p.as_shot_temp if p.as_shot_temp else None,
+                      p.as_shot_tint if p.as_shot_temp else None, 0.0) for p in photos]
+    lk, shots = _blend(lk, shots, cams, a.do_manh)
+    vals, curves, tpls = [], [], []
+    for ph, sh in zip(photos, shots):
+        v, crv, tpl = _compose_jpg(m, ph, lk, sh, a.khong_mask)
+        vals.append(v)
+        curves.append(crv)
+        tpls.append(tpl)
+    if a.luu_preset:
+        name = f"Editer - {a.luu_preset}"
+        d = xmp.preset_dir()
+        safe = "".join(c for c in name if c not in '\\/:*?"<>|')
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"{safe}.xmp").write_text(xmp.build_preset(name, vals[0], curves[0]), encoding="utf-8")
+            _log(f"Đã lưu preset Camera Raw: {d / (safe + '.xmp')} (nhóm 'Editer'; chỉ có màu, không có WB/exposure)")
+        except OSError as e:
+            _log(f"Không lưu được preset: {e}")
+    return vals, curves, tpls
+
+
+def cmd_kiem_tra_ps(a) -> None:
+    ps_obj, msg = psmod.check()
+    if not ps_obj:
+        raise SystemExit(f"Không kết nối được Photoshop: {msg}")
+    _log(f"Kết nối OK: {msg}")
+    if a.anh:
+        p = Path(a.anh)
+        _log(f"Thử dựng {p.name} bằng Camera Raw (thông số trung tính)...")
+        vals, crv = look.xmp_values(look.Look(), look.Shot(None, None, 0.0))
+        out = dict(_NEUTRAL)
+        out.update(vals)
+        t = time.time()
+        try:
+            img = ps_obj.render_raw(p, xmp.build_xmp(None, out, crv), psmod.workdir_for(p.parent))
+        finally:
+            psmod.cleanup(p.parent)
+        _log(f"  OK: {img.shape[1]}x{img.shape[0]} px trong {time.time() - t:.1f}s, màu trung bình {img.reshape(-1, 3).mean(0).round()}")
 
 
 def _masks_only(m: dict | None, ph: raw.Photo, no_mask: bool) -> str | None:
@@ -280,11 +365,18 @@ def menu() -> None:
                 d = _ask_path("Kéo thả thư mục RAW cần chỉnh: ", True)
                 main(["chinh", d, "--phong-cach", str(STYLE_FILE)])
         elif c == "3":
-            jpgs = _ask_many("Kéo thả ảnh JPG mẫu", False)
+            jpgs = _ask_many("Kéo thả ảnh JPG mẫu (ảnh có màu bạn muốn chép)", False)
             d = _ask_path("Kéo thả thư mục RAW cần chỉnh: ", True)
             args = ["chinh", d, "--mau-jpg", *jpgs]
             if STYLE_FILE.exists() and input("Giữ độ nét, khử nhiễu, mask da/tóc từ phong cách của bạn? (c/k) [c]: ").strip().lower() != "k":
                 args += ["--phong-cach", str(STYLE_FILE)]
+            _log("Dùng Photoshop để Camera Raw thật dựng thử và sửa cho ĐÚNG màu? (chính xác hơn,")
+            _log("mất thêm vài phút; Photoshop sẽ tự mở các ảnh đại diện rồi đóng lại)")
+            if input("(c/k) [c]: ").strip().lower() != "k":
+                args.append("--photoshop")
+            name = input("Lưu màu này thành preset Camera Raw? Nhập tên (Enter để bỏ qua): ").strip()
+            if name:
+                args += ["--luu-preset", name]
             main(args)
     except SystemExit as e:
         if e.code not in (0, None):
@@ -318,7 +410,14 @@ def main(argv=None) -> None:
     c.add_argument("thu_muc")
     c.add_argument("--phong-cach", help="file phong cách đã học (.editer)")
     c.add_argument("--mau-jpg", nargs="+", help="1 hoặc vài ảnh JPG có màu muốn theo")
-    c.add_argument("--do-manh", type=float, default=0.85, help="mức theo màu ảnh mẫu, 0..1 (mặc định 0.85)")
+    c.add_argument("--do-manh", type=float, default=1.0, help="mức chép màu, 0..1 (mặc định 1 = chép đủ)")
+    c.add_argument("--photoshop", action="store_true",
+                   help="nhờ Photoshop (Camera Raw thật) dựng ảnh để kiểm tra và sửa màu cho đúng")
+    c.add_argument("--so-anh-dai-dien", type=int, default=0, help="số ảnh đại diện (mặc định 6, có Photoshop: 4)")
+    c.add_argument("--so-luot", type=int, default=5, help="số lượt sửa với Camera Raw (mặc định 5)")
+    c.add_argument("--co-anh", type=int, default=1024, help="cỡ ảnh Camera Raw dựng để đo (px)")
+    c.add_argument("--luu-preset", help="lưu màu chép được thành preset Camera Raw với tên này")
+    c.add_argument("--vung-tat-ca", action="store_true", help="phân vùng mọi ảnh (chậm nếu không có card đồ hoạ)")
     c.add_argument("--cach-canh", type=float, default=4.0, help="số phút cách nhau thì tính là cảnh mới")
     c.add_argument("--ghi-de", action="store_true", help="chỉnh cả ảnh đã có .xmp (giữ bản cũ .xmp.bak)")
     c.add_argument("--thu", action="store_true", help="chạy thử, không ghi file")
@@ -327,6 +426,10 @@ def main(argv=None) -> None:
     c.add_argument("--khong-ai", action="store_true", help="không dùng AI hiểu ảnh")
     c.add_argument("--luong", type=int, default=min(8, os.cpu_count() or 4))
     c.set_defaults(func=cmd_chinh)
+
+    k = sub.add_parser("kiem-tra-photoshop", help="kiểm tra kết nối Photoshop (và thử dựng 1 ảnh RAW)")
+    k.add_argument("anh", nargs="?")
+    k.set_defaults(func=cmd_kiem_tra_ps)
 
     x = sub.add_parser("xem", help="xem thông tin một file RAW")
     x.add_argument("anh")

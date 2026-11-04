@@ -45,14 +45,17 @@ jobs:
           PYTHONIOENCODING: utf-8
           EDITER_MODELS: models
         run: |
+          python -c "import onnxruntime as o; print('onnxruntime', o.__version__, o.get_available_providers())"
           python tests/test_ai.py
-          python tests/test_match.py
+          python tests/test_look.py
+          python tests/test_ps.py
           python tests/test_e2e.py "$env:RUNNER_TEMP\e2e"
 
       - name: Đóng gói .exe
         run: |
           pyinstaller --noconfirm --onedir --console --name editer-anh --paths . `
             --collect-all sklearn --collect-all rawpy --collect-all onnxruntime `
+            --hidden-import win32com.client --hidden-import pythoncom --hidden-import pywintypes `
             --add-data "models;models" packaging/run.py
           Copy-Item packaging/HUONG-DAN.txt dist/editer-anh/
           Compress-Archive -Path dist/editer-anh -DestinationPath Editer-Anh-Windows.zip
@@ -64,7 +67,10 @@ jobs:
           Write-Output $out
           if ($out -notmatch "AI hiểu ảnh: BẬT") { throw "bản .exe không bật được AI" }
           dist/editer-anh/editer-anh.exe chinh "$env:RUNNER_TEMP\e2e\moi" --phong-cach "$env:RUNNER_TEMP\pc.editer" --ghi-de --thu
-          dist/editer-anh/editer-anh.exe chinh "$env:RUNNER_TEMP\e2e\moi" --mau-jpg "$env:RUNNER_TEMP\e2e\mau.jpg" --ghi-de --thu
+          $out = dist/editer-anh/editer-anh.exe chinh "$env:RUNNER_TEMP\e2e\moi" --mau-jpg "$env:RUNNER_TEMP\e2e\mau.jpg" --ghi-de --thu | Out-String
+          Write-Output $out
+          if ($out -notmatch "AI phân vùng \(da, trắng, trời, cây\): BẬT") { throw "bản .exe không bật được AI phân vùng" }
+          dist/editer-anh/editer-anh.exe --help | Out-Null
 
       - name: Lấy số phiên bản
         id: ver

@@ -16,8 +16,10 @@ trong labels.npz), nên lúc chạy chỉ cần phần nhìn của mô hình.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -70,20 +72,81 @@ def model_dirs() -> list[Path]:
     return dirs
 
 
+# ------------------------------------------------------------------ chạy mô hình (CPU / card đồ hoạ)
+def _gpu_providers():
+    """Card đồ hoạ: DirectML (mọi card trên Windows: NVIDIA/AMD/Intel) hoặc CUDA."""
+    if os.environ.get("EDITER_CPU"):
+        return None
+    import onnxruntime as ort
+    avail = ort.get_available_providers()
+    if "DmlExecutionProvider" in avail:
+        return [("DmlExecutionProvider", {"device_id": int(os.environ.get("EDITER_GPU_ID", "0"))}),
+                "CPUExecutionProvider"]
+    if "CUDAExecutionProvider" in avail:
+        return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    return None
+
+
+class _Model:
+    """Một mô hình ONNX. Có card đồ hoạ thì thử cả card lẫn CPU, ĐO TỐC ĐỘ thật,
+    rồi chọn cái nhanh hơn (card yếu / máy ảo đôi khi còn chậm hơn CPU).
+    Kết quả như nhau, chỉ khác tốc độ."""
+
+    def __init__(self, folder: Path, name: str, shape: tuple):
+        import onnxruntime as ort
+        int8, fp16 = folder / f"{name}.onnx", folder / f"{name}.fp16.onnx"
+        cands = []
+        gpu = _gpu_providers()
+        if gpu:
+            cands.append(("card đồ hoạ", fp16 if fp16.exists() else int8, gpu))
+        cands.append(("CPU", int8 if int8.exists() else fp16, ["CPUExecutionProvider"]))
+        best, errors = None, []
+        for label, path, provs in cands:
+            if not path.exists():
+                continue
+            try:
+                opts = ort.SessionOptions()
+                opts.log_severity_level = 3
+                if label != "CPU":   # DirectML cần 2 tuỳ chọn này
+                    opts.enable_mem_pattern = False
+                    opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                sess = ort.InferenceSession(str(path), opts, providers=provs)
+                sec = self._bench(sess, shape)
+            except Exception as e:
+                errors.append(f"{label}: {e}")
+                continue
+            if best is None or sec < best[2]:
+                best = (label, sess, sec)
+        if best is None:
+            raise RuntimeError("; ".join(errors) or f"không thấy {name}.onnx")
+        self.device, self.sess, self.sec = best
+        inp = self.sess.get_inputs()[0]
+        self.input = inp.name
+        self.half = "float16" in inp.type
+        self.outputs = [o.name for o in self.sess.get_outputs()]
+
+    @staticmethod
+    def _bench(sess, shape) -> float:
+        inp = sess.get_inputs()[0]
+        x = np.zeros(shape, np.float16 if "float16" in inp.type else np.float32)
+        sess.run(None, {inp.name: x})            # lần đầu: khởi động
+        t = time.perf_counter()
+        sess.run(None, {inp.name: x})
+        return time.perf_counter() - t
+
+    def run(self, x: np.ndarray, output: str | None = None) -> np.ndarray:
+        x = x.astype(np.float16 if self.half else np.float32)
+        out = self.sess.run([output or self.outputs[0]], {self.input: x})[0]
+        return out.astype(np.float32)
+
+
 class Embedder:
     _inst: "Embedder | None" = None
 
     def __init__(self, folder: Path):
-        import onnxruntime as ort
-        providers = [p for p in ("DmlExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider")
-                     if p in ort.get_available_providers()]
-        opts = ort.SessionOptions()
-        opts.log_severity_level = 3
-        self.sess = ort.InferenceSession(str(folder / MODEL_NAME), opts, providers=providers)
-        self.device = self.sess.get_providers()[0].replace("ExecutionProvider", "")
-        self.input = self.sess.get_inputs()[0].name
-        outs = [o.name for o in self.sess.get_outputs()]
-        self.output = "image_embeds" if "image_embeds" in outs else outs[0]
+        self.model = _Model(folder, MODEL_NAME[:-5], (1, 3, SIZE, SIZE))
+        self.device = self.model.device
+        self.output = "image_embeds" if "image_embeds" in self.model.outputs else self.model.outputs[0]
         lab = np.load(folder / LABELS_NAME)
         self.label_keys = [str(k) for k in lab["keys"]]
         self.label_emb = lab["emb"].astype(np.float32)
@@ -119,8 +182,8 @@ class Embedder:
     def embed(self, images: list[np.ndarray], batch: int = 16) -> np.ndarray:
         out = []
         for i in range(0, len(images), batch):
-            x = np.stack([self._prep(im) for im in images[i:i + batch]]).astype(np.float32)
-            e = self.sess.run([self.output], {self.input: x})[0]
+            x = np.stack([self._prep(im) for im in images[i:i + batch]])
+            e = self.model.run(x, self.output)
             out.append(e.reshape(len(x), -1))
         e = np.concatenate(out, axis=0).astype(np.float32)
         return e / np.maximum(np.linalg.norm(e, axis=1, keepdims=True), 1e-9)
@@ -138,4 +201,98 @@ class Embedder:
             idx = [i for i, key in enumerate(self.label_keys) if key in group]
             idx.sort(key=lambda i: -sc[i])
             out += [names.get(self.label_keys[i], self.label_keys[i]) for i in idx[:k]]
+        return out
+
+
+# ------------------------------------------------------------------ phân vùng ảnh
+SEG_SCENE = "seg-canh"     # SegFormer-B0 ADE20K: trời, cây, nước, người... (150 loại)
+SEG_PEOPLE = "seg-nguoi"   # SegFormer-B2 người: mặt, tay, chân, tóc, váy, áo... (18 loại)
+SEG_LABELS = "seg-nhan.json"
+SEG_SIZE = 512
+_IN_MEAN = np.array([0.485, 0.456, 0.406], np.float32)
+_IN_STD = np.array([0.229, 0.224, 0.225], np.float32)
+
+
+def _norm_name(n: str) -> str:
+    return n.strip().lower().split(",")[0].strip()
+
+
+class Segmenter:
+    """Tìm vùng trong ảnh: da, tóc, quần áo (váy cưới), trời, cây, nước, người.
+    Trả về bản đồ mã vùng (look.SKIN, look.SKY...) cùng kích thước ảnh."""
+    _inst: "Segmenter | None" = None
+    _tried = False
+
+    def __init__(self, folder: Path):
+        from . import look as L
+        names = json.loads((folder / SEG_LABELS).read_text(encoding="utf-8"))
+        shape = (1, 3, SEG_SIZE, SEG_SIZE)
+        self.scene = _Model(folder, SEG_SCENE, shape) if (folder / f"{SEG_SCENE}.onnx").exists() else None
+        self.people = None
+        if (folder / f"{SEG_PEOPLE}.onnx").exists() or (folder / f"{SEG_PEOPLE}.fp16.onnx").exists():
+            self.people = _Model(folder, SEG_PEOPLE, shape)
+        if self.scene is None and self.people is None:
+            raise RuntimeError("không có mô hình phân vùng")
+        scene_map = {"sky": L.SKY, "tree": L.PLANT, "grass": L.PLANT, "plant": L.PLANT, "palm": L.PLANT,
+                     "field": L.PLANT, "water": L.WATER, "sea": L.WATER, "river": L.WATER, "lake": L.WATER,
+                     "swimming pool": L.WATER, "waterfall": L.WATER, "person": L.PERSON}
+        self.scene_codes = np.array([scene_map.get(_norm_name(n), L.OTHER) for n in names.get("canh", [])], np.uint8)
+        skin = {"face", "left-leg", "right-leg", "left-arm", "right-arm"}
+        people_codes = []
+        for n in names.get("nguoi", []):
+            n = _norm_name(n)
+            people_codes.append(L.OTHER if n in ("background", "sunglasses") else
+                                L.SKIN if n in skin else L.HAIR if n == "hair" else L.CLOTHES)
+        self.people_codes = np.array(people_codes, np.uint8)
+        self.codes = L
+        self.sec = sum(m.sec for m in (self.scene, self.people) if m)
+        self.device = " + ".join(sorted({m.device for m in (self.scene, self.people) if m}))
+
+    @classmethod
+    def get(cls) -> "Segmenter | None":
+        if cls._inst is None and not cls._tried:
+            cls._tried = True
+            if os.environ.get("EDITER_KHONG_AI"):
+                return None
+            for d in model_dirs():
+                if (d / SEG_LABELS).exists():
+                    try:
+                        cls._inst = Segmenter(d)
+                    except Exception as e:
+                        print(f"(Không bật được AI phân vùng: {e})", flush=True)
+                    break
+        return cls._inst
+
+    @property
+    def fast(self) -> bool:
+        """Đủ nhanh để phân vùng MỌI ảnh trong job (thường là khi chạy bằng card đồ hoạ)."""
+        return self.sec < 0.15
+
+    @staticmethod
+    def _prep(rgb_u8: np.ndarray) -> np.ndarray:
+        im = Image.fromarray(rgb_u8).resize((SEG_SIZE, SEG_SIZE), Image.BILINEAR)
+        a = np.asarray(im, np.float32) / 255.0
+        return ((a - _IN_MEAN) / _IN_STD).transpose(2, 0, 1)[None]
+
+    def _labels(self, model: _Model, x: np.ndarray, h: int, w: int) -> np.ndarray:
+        logits = model.run(x)[0]                       # C x 128 x 128
+        lab = np.argmax(logits, axis=0).astype(np.uint8)
+        return np.asarray(Image.fromarray(lab).resize((w, h), Image.NEAREST))
+
+    def segment(self, rgb_u8: np.ndarray) -> np.ndarray:
+        L = self.codes
+        h, w = rgb_u8.shape[:2]
+        x = self._prep(rgb_u8)
+        out = np.full((h, w), L.OTHER, np.uint8)
+        person = None
+        if self.scene is not None:
+            sc = self.scene_codes[np.minimum(self._labels(self.scene, x, h, w), len(self.scene_codes) - 1)]
+            out[:] = sc
+            person = sc == L.PERSON
+        if self.people is not None:
+            pc = self.people_codes[np.minimum(self._labels(self.people, x, h, w), len(self.people_codes) - 1)]
+            m = pc != L.OTHER
+            if person is not None:   # chỉ tin bộ phận người ở chỗ mô hình cảnh cũng thấy có người
+                m &= person
+            out[m] = pc[m]
         return out
