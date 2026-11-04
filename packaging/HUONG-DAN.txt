@@ -12,8 +12,9 @@ MỚI Ở BẢN 0.5
    thì chỉ chỉnh toàn ảnh và báo rõ. Mở Camera Raw > Masking để xem / kéo lại.
  - GIỮ MÀU ÁO: màu áo/váy (áo dài đỏ, vest...) được giữ như ảnh gốc, không bị kéo theo màu
    của ảnh mẫu. Thẻ "Màu áo (giữ như gốc)" cho biết lệch bao nhiêu so với gốc.
- - Đo màu chuẩn hơn: da đo ở mặt trước (không lẫn tóc/áo), "trắng" và ám màu vùng tối/sáng
-   chỉ đo trên màu xám thật (rèm đỏ, áo đỏ không còn bị hiểu là ám đỏ), vùng quá nhỏ bị bỏ qua.
+ - Đo màu chuẩn hơn: da đo ở mặt trước (không lẫn tóc/áo); "trắng" phải là vùng SÁNG và ÍT
+   MÀU (ảnh mẫu nhiều gỗ / tường cam / rèm đỏ không còn bị hiểu là "trắng ngả cam" làm cả ảnh
+   cam theo); ám màu vùng tối/sáng chỉ đo trên màu xám thật; vùng quá nhỏ bị bỏ qua.
  - MỞ TRONG PHOTOSHOP ĐỂ CÂN LẠI: chép màu xong bấm "Mở ảnh đại diện trong Photoshop" hoặc
    "Mở 60 ảnh đầu trong Photoshop" -> Camera Raw hiện ra với thông số tool đã ghi. Chỉnh tay
    rồi bấm Done là lưu vào .xmp. Áp cho cả nhóm: chọn ảnh ở dải bên trái (Ctrl+A) > chuột

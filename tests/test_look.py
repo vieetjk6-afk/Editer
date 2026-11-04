@@ -64,9 +64,9 @@ def render(img, lk: Look, sh: Shot, k=look.DEFAULT, base_shot=AS_SHOT, reg=None)
     return (np.clip(y, 0, 1).reshape(img.shape) * 255 + 0.5).astype(np.uint8)
 
 
-def stats_of(img, reg, seed=0):
+def stats_of(img, reg, seed=0, ref=False):
     s, idx = look.make_sample(img, reg, seed=seed)
-    sel = look.select(s)
+    sel = look.select(s, ref=ref)
     return s, idx, sel, look.measure(s.px, sel)
 
 
@@ -81,7 +81,7 @@ TRUE_SHOT = Shot(1e6 / 5500 - 12, 4.0, -0.3)
 def test_self_match():
     img, reg = scene(1)
     ref_img = render(img, TRUE_LOOK, TRUE_SHOT)
-    _, _, ref_sel, ref = stats_of(ref_img, reg, seed=9)
+    _, _, ref_sel, ref = stats_of(ref_img, reg, seed=9, ref=True)
     s, idx, sel, _ = stats_of(img, reg)
     t = time.time()
     lk, shots = look.solve([look.Rep(s.px, sel, Look(), AS_SHOT)], ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT])
@@ -95,7 +95,7 @@ def test_self_match():
 def test_tungsten_needs_cooler_wb():
     img, reg = scene(2, light_k=3000)            # ảnh ám cam (đèn vàng, máy để 5500K)
     ref_img, ref_reg = scene(3)                  # ảnh mẫu trung tính
-    _, _, ref_sel, ref = stats_of(ref_img, ref_reg)
+    _, _, ref_sel, ref = stats_of(ref_img, ref_reg, ref=True)
     s, idx, sel, m0 = stats_of(img, reg)
     lk, shots = look.solve([look.Rep(s.px, sel, Look(), AS_SHOT)], ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT])
     k_new = 1e6 / shots[0].mired
@@ -131,7 +131,7 @@ def test_closed_loop_fixes_wrong_simulator():
     true = TRUE_LOOK.copy()
     true.skin_loc = np.array([0.3, 15, 5, 10.0])               # đáp án có chỉnh riêng vùng da
     ref_img = fake_acr(target, true, Shot(1e6 / 4300, 3.0, 0.5), reg)
-    _, _, ref_sel, ref = stats_of(ref_img, reg, seed=77)
+    _, _, ref_sel, ref = stats_of(ref_img, reg, seed=77, ref=True)
     s, idx, sel, m0 = stats_of(target, reg)
     reps = [look.Rep(s.px, sel, Look(), AS_SHOT, s.reg)]
     lk0, sh0 = look.solve(reps, ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=False)
@@ -151,7 +151,7 @@ def test_probe_masks_off():
     """Camera Raw không áp mask AI -> tool phải nhận ra và tắt chỉnh cục bộ."""
     target, reg = scene(6, light_k=4600)
     ref_img = fake_acr(scene(7)[0], TRUE_LOOK, Shot(1e6 / 5500, 0, 0.1), scene(7)[1])
-    _, _, ref_sel, ref = stats_of(ref_img, scene(7)[1])
+    _, _, ref_sel, ref = stats_of(ref_img, scene(7)[1], ref=True)
     s, idx, sel, _ = stats_of(target, reg)
     reps = [look.Rep(s.px, sel, Look(), AS_SHOT, s.reg)]
     lk0, sh0 = look.solve(reps, ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=False)
@@ -168,7 +168,7 @@ def test_keep_red_dress():
     ref_img, rreg = scene(10, skin_lab=(72, 18, 24))
     ref_img = render(ref_img, Look(grade=np.array([0, 0, 0, 0, 4, 8.0]), sat=np.array([0, 10, 0, -40, 0, 0, 0, 0.0])),
                      Shot(1e6 / 5200, 0, 0.2))
-    _, _, ref_sel, ref = stats_of(ref_img, rreg)
+    _, _, ref_sel, ref = stats_of(ref_img, rreg, ref=True)
     s, idx, sel, m0 = stats_of(target, reg)
     assert "clothes" in m0, "phải nhận ra áo màu"
     rep_ = look.Rep(s.px, sel, Look(), AS_SHOT, s.reg, {"clothes": m0["clothes"]})
@@ -190,7 +190,7 @@ def test_dark_red_curtain():
     rreg = rreg.copy()
     rreg[: int(ref_img.shape[0] * 0.5), :] = OTHER
     ref_img = (color.lab_to_srgb(lab.reshape(-1, 3)).reshape(ref_img.shape) * 255 + 0.5).astype(np.uint8)
-    _, _, ref_sel, ref = stats_of(ref_img, rreg)
+    _, _, ref_sel, ref = stats_of(ref_img, rreg, ref=True)
     target, reg = scene(13)
     s, idx, sel, m0 = stats_of(target, reg)
     lk, shots = look.solve([look.Rep(s.px, sel, Look(), AS_SHOT, s.reg)], ref, ref_sel, Look(), [AS_SHOT],
@@ -200,6 +200,32 @@ def test_dark_red_curtain():
     ab = color.srgb_to_lab(out.reshape(-1, 3) / 255.0)[suit.reshape(-1), 1:].mean(axis=0)
     print(f"[rèm đỏ] màu vest đen sau khi chép: a*={ab[0]:+.1f} b*={ab[1]:+.1f} (gần 0 = vẫn trung tính)")
     assert np.hypot(*ab) < 4.0, "vùng tối trung tính bị nhuộm màu theo rèm đỏ"
+
+
+def test_orange_reference_whites():
+    """Lỗi thật đã gặp (bản 0.4/0.5 đầu): ảnh mẫu nhiều gỗ / tường CAM -> tool lấy chính màu cam
+    làm "màu trắng" (a*=+21, b*=+35) và kéo cả ảnh RAW sang cam. "Trắng" phải là vùng sáng, ít màu."""
+    import skimage.data as skd
+    s, _ = look.make_sample(skd.coffee(), None, seed=5)        # tách cà phê trắng trên bàn gỗ cam
+    m = look.measure(s.px, look.select(s, ref=True))
+    assert "neutral" in m and np.hypot(*m["neutral"]) < 15, f"trắng của ảnh cà phê bị nhận thành cam: {m.get('neutral')}"
+    ref_img, rreg = scene(14)
+    lab = color.srgb_to_lab(ref_img.reshape(-1, 3) / 255.0).reshape(ref_img.shape)
+    wall = (rreg == OTHER) & (lab[..., 0] > 60) & (lab[..., 0] < 85)
+    lab[wall] = (58, 20, 38)                                    # tường gỗ cam
+    ref_img = (color.lab_to_srgb(lab.reshape(-1, 3)).reshape(ref_img.shape) * 255 + 0.5).astype(np.uint8)
+    _, _, ref_sel, ref = stats_of(ref_img, rreg, ref=True)
+    target, reg = scene(15)
+    s, idx, sel, m0 = stats_of(target, reg)
+    lk, shots = look.solve([look.Rep(s.px, sel, Look(), AS_SHOT, s.reg)], ref, ref_sel, Look(), [AS_SHOT],
+                           [AS_SHOT], use_local=False)
+    out = render(target, lk, shots[0])
+    dress = (reg == CLOTHES) & (color.srgb_to_lab(target.reshape(-1, 3) / 255.0)[:, 0].reshape(reg.shape) > 85)
+    ab = color.srgb_to_lab(out.reshape(-1, 3) / 255.0)[dress.reshape(-1), 1:].mean(axis=0)
+    k_new = 1e6 / shots[0].mired
+    print(f"[ảnh mẫu tường cam] trắng ảnh mẫu a*,b* = {np.round(ref['neutral'], 1)}; váy trắng sau khi chép: "
+          f"a*={ab[0]:+.1f} b*={ab[1]:+.1f}; nhiệt độ {k_new:.0f}K")
+    assert np.hypot(*ab) < 8.0 and k_new < 9000, "váy trắng bị nhuộm cam theo tường"
 
 
 def test_xmp_roundtrip(tmp: Path):
@@ -239,6 +265,7 @@ if __name__ == "__main__":
     test_probe_masks_off()
     test_keep_red_dress()
     test_dark_red_curtain()
+    test_orange_reference_whites()
     with tempfile.TemporaryDirectory() as d:
         test_xmp_roundtrip(Path(d))
     test_transfer()

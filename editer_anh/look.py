@@ -375,7 +375,31 @@ def _ok(idx: np.ndarray, n: int = 50) -> np.ndarray | None:
     return idx if len(idx) >= n else None
 
 
-def select(s: Sample) -> Sel:
+CAST_MAX_REF = 12.0   # "trắng" trong ẢNH MẪU (đã chỉnh xong) hiếm khi đậm màu hơn mức kem/ấm nhẹ này
+CAST_MAX_RAW = 60.0   # ảnh RAW chưa chỉnh có thể ám rất mạnh (đèn vàng mà máy để sai cân bằng trắng)
+
+
+def _neutral(L, ab, C, cand, cast_max: float):
+    """Điểm "trắng/xám" = SÁNG và ÍT MÀU. Ước lượng ám màu chung từ 30% điểm ít màu nhất trong
+    nửa sáng hơn, rồi chỉ nhận điểm GẦN ám đó (<= 8, nới tới 12). Không lấy "cứ 20% ít màu
+    nhất": ảnh nhiều gỗ / tường cam / rèm sẽ biến "trắng" thành cam (lỗi bản 0.4)."""
+    bright = cand & (L >= np.percentile(L[cand], 50))
+    low = bright & (C <= np.percentile(C[bright], 30))
+    cast = np.median(ab[low], axis=0)
+    cc = float(np.hypot(*cast))
+    if cc > cast_max:
+        cast = cast * (cast_max / cc)
+    Cc = np.hypot(*(ab - cast).T)
+    p20 = float(np.percentile(Cc[cand], 20))
+    for tmax in (8.0, 12.0):
+        idx = np.flatnonzero(cand & (Cc <= min(tmax, max(4.0, p20))))
+        if len(idx) >= 50:
+            return cast, Cc, idx
+    return cast, Cc, None
+
+
+def select(s: Sample, ref: bool = False) -> Sel:
+    """Chọn điểm để đo. ref=True: ảnh mẫu (đã chỉnh xong) — "trắng" không được đậm màu."""
     lab = color.srgb_to_lab(s.px)
     L, ab = lab[:, 0], lab[:, 1:]
     C = np.hypot(ab[:, 0], ab[:, 1])
@@ -389,17 +413,15 @@ def select(s: Sample) -> Sel:
     valid = (L > 3) & (L < 99)
     # Ám màu chung (để tìm điểm "trắng/xám" kể cả khi ảnh đang ám vàng)
     cand = valid & np.isin(reg, [OTHER, CLOTHES, PERSON]) & (L > 30) & (L < 97)
-    cast = np.zeros(2)
+    cast, Cc = np.zeros(2), C                          # Cc: độ đậm màu sau khi bỏ ám chung
     if cand.sum() >= 50:
-        low = cand & (C <= np.percentile(C[cand], 50))
-        cast = np.median(ab[low], axis=0)
-    Cc = np.hypot(*(ab - cast).T)                       # độ đậm màu sau khi bỏ ám chung
-    if cand.sum() >= 50:
-        thr = max(4.0, float(np.percentile(Cc[cand], 20)))
-        sel.neutral = _ok(np.flatnonzero(cand & (Cc <= thr)))
+        cast, Cc, sel.neutral = _neutral(L, ab, C, cand, CAST_MAX_REF if ref else CAST_MAX_RAW)
+        if sel.neutral is not None:                    # màu thật của "trắng" trong ảnh này
+            cast = np.median(ab[sel.neutral], axis=0)
+            Cc = np.hypot(*(ab - cast).T)
     # DA: ưu tiên MẶT; chỉ nhận điểm có màu giống da (loại áo/hoa đỏ bị nhận nhầm)
     hue = np.degrees(np.arctan2(ab[:, 1] - cast[1], ab[:, 0] - cast[0]))
-    plaus = (L > 30) & (L < 95) & (Cc > 4) & (Cc < 45) & (hue > 5) & (hue < 95)
+    plaus = (L > 30) & (L < 95) & (Cc > 4) & (Cc < 55) & (hue > 5) & (hue < 95)
     for code, need in ((FACE, 0.0015), (SKIN, 0.003)):
         if sel.frac["face" if code == FACE else "skin"] < need:
             continue
@@ -998,7 +1020,7 @@ def load_reference(paths, segment=None, embedder=None) -> Reference:
         globs.append(s.glob + n0)
         n0 += len(s.px)
     s = Sample(np.concatenate(pxs), np.concatenate(regs), np.concatenate(globs))
-    sel = select(s)
+    sel = select(s, ref=True)
     emb = None
     if embedder is not None:
         e = embedder.embed(imgs).mean(axis=0)

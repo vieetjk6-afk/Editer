@@ -44,8 +44,10 @@ Có 3 chức năng:
      Skin + Body Skin; `Editer - Nền`: Background), mỗi mask có Exposure/Temp/Tint/Saturation
      riêng, tối ưu cùng thông số toàn ảnh. Ở lượt dựng thật đầu tiên tool dựng thử mask Da +0,8 EV
      / Nền −0,8 EV: nếu Camera Raw không áp mask khi dựng tự động thì tắt chỉnh cục bộ.
-   - **0.5 — đo theo nội dung:** da đo ở mặt trước (SegFormer clothes: Face), trắng và ám màu
-     vùng tối/sáng chỉ đo trên điểm xám thật (không lẫn rèm đỏ/áo màu), bỏ vùng < 3% ảnh. Màu
+   - **0.5 — đo theo nội dung:** da đo ở mặt trước (SegFormer clothes: Face); "trắng" = điểm sáng,
+     ít màu, gần ám màu ước lượng từ 30% điểm ít màu nhất của nửa sáng (ảnh mẫu: ám tối đa
+     chroma 12 — trước đây ảnh mẫu nhiều gỗ cam cho "trắng" a*=+21, b*=+35); ám màu vùng
+     tối/sáng chỉ đo trên điểm xám thật (không lẫn rèm đỏ/áo màu), bỏ vùng < 3% ảnh. Màu
      áo được **giữ như ảnh gốc** (so với gốc, không so với ảnh mẫu).
    - **0.5 — giao diện:** nút mở ảnh đại diện / 60 ảnh đầu trong Photoshop (Camera Raw) để cân
      lại; mục **Cập nhật** tải bản mới từ Releases (repo riêng tư → cần token chỉ-đọc, lưu ở
