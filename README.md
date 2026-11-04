@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.1)
+## Editer Ảnh (bản 0.2)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén, bấm đúp `editer-anh.exe`.
@@ -25,6 +25,17 @@ Có 3 chức năng:
 3. **Chỉnh theo JPG mẫu**: từng ảnh được chỉnh cân bằng trắng + exposure theo ảnh mẫu.
    Cả lô dùng chung Tone Curve + HSL + Color Grading, tính từ toàn bộ lô so với ảnh mẫu.
    Có thể giữ độ nét, khử nhiễu và mask da/tóc từ phong cách của bạn.
+
+**AI hiểu ảnh (0.2):** mô hình CLIP (ONNX, ~90MB, chạy CPU trên máy, không cần mạng) biến
+mỗi ảnh thành "dấu vân tay nội dung". Dấu vân tay này được dùng để:
+- làm đầu vào cho mô hình học;
+- tìm các ảnh cũ giống nhất (kNN);
+- gắn nhãn và chia cảnh.
+
+Với mỗi thông số, tool thử 3 cách (học quy luật / theo ảnh cũ giống nhất / kết hợp), kiểm
+tra chéo rồi giữ cách sai ít nhất. Tool cũng báo độ lệch khi không có AI để so sánh.
+**Học thêm:** dữ liệu đã học được lưu trong file phong cách. Lần sau tool chỉ đọc ảnh mới
+hoặc ảnh có `.xmp` vừa sửa, và lưu lịch sử độ chính xác qua các lần học.
 
 Dòng lệnh (cho người dùng nâng cao):
 

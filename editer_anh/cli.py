@@ -14,6 +14,8 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
+
 from . import __version__, color, match, raw, style, xmp
 
 # Đặt tất cả về 0 khi chỉnh theo JPG (để kết quả không phụ thuộc mặc định của máy)
@@ -34,25 +36,45 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
 
 
+_NAMES = {"d_mired": "Nhiệt độ màu", "d_tint": "Tint", "Exposure2012": "Exposure",
+          "Contrast2012": "Contrast", "Highlights2012": "Highlights", "Shadows2012": "Shadows",
+          "Whites2012": "Whites", "Blacks2012": "Blacks", "Vibrance": "Vibrance"}
+_METHODS = {"gbm": "học quy luật", "knn": "theo ảnh cũ giống nhất", "blend": "kết hợp 2 cách"}
+
+
+def _fmt_err(t: str, v: float) -> str:
+    if t == "d_mired":
+        return f"±{1e6 / (1e6 / 5500 - v) - 5500:.0f}K"
+    return f"±{v:.2f}"
+
+
 def cmd_hoc(a) -> None:
     t0 = time.time()
-    m = style.learn(a.thu_muc, log=_log, workers=a.luong)
     out = Path(a.ra)
+    prev = None
+    if out.exists() and not a.hoc_lai:
+        try:
+            prev = style.load(out)
+            _log(f"Học thêm vào phong cách đã có ({prev['n_photos']} ảnh). Thêm --hoc-lai để học lại từ đầu.")
+        except SystemExit:
+            _log("File phong cách cũ khác phiên bản — học lại từ đầu.")
+    m = style.learn(a.thu_muc, log=_log, workers=a.luong, previous=prev)
+    out.parent.mkdir(parents=True, exist_ok=True)
     style.save(m, out)
     _log(f"\nĐã học từ {m['n_photos']} ảnh ({', '.join(f'{k}: {v}' for k, v in m['counts'].items())}).")
-    _log("Độ chính xác (kiểm tra chéo trên chính ảnh của bạn):")
-    names = {"d_mired": "Nhiệt độ màu", "d_tint": "Tint", "Exposure2012": "Exposure"}
+    _log("Độ chính xác (giấu 1/5 số ảnh, cho tool đoán, so với cách bạn chỉnh thật):")
     for t, r in m["report"].items():
-        n = names.get(t, t)
+        n = _NAMES.get(t, t)
         if math.isnan(r["mae"]):
-            _log(f"  {n:14s}: chưa đủ ảnh để kiểm tra (n={r['n']})")
+            _log(f"  {n:13s}: chưa đủ ảnh để kiểm tra (n={r['n']}, cần 40+)")
             continue
-        if t == "d_mired":
-            k = 1e6 / (1e6 / 5500 - r["mae"]) - 5500
-            kb = 1e6 / (1e6 / 5500 - r["mae_median"]) - 5500
-            _log(f"  {n:14s}: lệch trung bình ±{k:.0f}K  (nếu chỉ dùng 1 số cố định: ±{kb:.0f}K)")
-        else:
-            _log(f"  {n:14s}: lệch trung bình ±{r['mae']:.2f}  (nếu chỉ dùng 1 số cố định: ±{r['mae_median']:.2f})")
+        _log(f"  {n:13s}: lệch TB {_fmt_err(t, r['mae']):>7s}  | dùng 1 số cố định: {_fmt_err(t, r['mae_median']):>7s}"
+             f"  | cách tốt nhất: {_METHODS.get(r['method'], r['method'])}"
+             + (f"  | nếu không có AI: {_fmt_err(t, r['mae_no_ai'])}" if "mae_no_ai" in r else ""))
+    hist = [h for h in m.get("history", []) if not math.isnan(h.get("d_mired", math.nan))]
+    if len(hist) >= 2:
+        _log("Tiến bộ qua các lần học (nhiệt độ màu): " + " -> ".join(
+            f"{_fmt_err('d_mired', h['d_mired'])} ({h['n']} ảnh)" for h in hist[-6:]))
     _log(f"\nĐã lưu: {out.resolve()}  ({time.time() - t0:.0f}s)")
 
 
@@ -102,8 +124,23 @@ def cmd_chinh(a) -> None:
         if p.error or p.preview is None:
             _log(f"  lỗi {r.name}: {p.error or 'không có ảnh xem trước'}")
     raws, photos = [r for r, _ in ok], [p for _, p in ok]
-    scenes = style.group_scenes(photos, a.cach_canh)
-    _log(f"Chia được {len(set(scenes))} cảnh (theo giờ chụp).")
+    from . import ai
+    emb_model = None if a.khong_ai else ai.Embedder.get()
+    if m and m.get("ai") and emb_model is None:
+        _log("CẢNH BÁO: phong cách được học có AI nhưng máy này không bật được AI — kết quả sẽ kém chính xác hơn.")
+    embs = None
+    if emb_model:
+        _log(f"AI đang xem {len(photos)} ảnh ({emb_model.device})...")
+        embs = emb_model.embed([p.preview for p in photos])
+    scenes = style.group_scenes(photos, a.cach_canh, embs)
+    scene_names = {}
+    if embs is not None:
+        for sc in set(scenes):
+            e = embs[[i for i, x in enumerate(scenes) if x == sc]].mean(axis=0)
+            scene_names[sc] = ", ".join(emb_model.top_labels(e / np.linalg.norm(e)))
+    _log(f"Chia được {len(set(scenes))} cảnh" + (" (theo giờ chụp + nội dung ảnh)." if embs is not None else " (theo giờ chụp)."))
+    for sc in sorted(scene_names)[:15]:
+        _log(f"  cảnh {sc + 1}: {scene_names[sc]} ({scenes.count(sc)} ảnh)")
 
     curve = None
     if a.mau_jpg:
@@ -138,7 +175,7 @@ def cmd_chinh(a) -> None:
             all_vals.append(out)
         templates = [_masks_only(m, ph, a.khong_mask) for ph in photos]
     else:
-        preds = style.predict(m, photos)
+        preds = style.predict(m, photos, embs if m.get("ai") else None)
         style.smooth_by_scene(preds, scenes)
         all_vals = [_values_from_style(m, ph, pr) for ph, pr in zip(photos, preds)]
         templates = [_template_for(m, ph, a.khong_mask) for ph in photos]
@@ -149,7 +186,7 @@ def cmd_chinh(a) -> None:
         status = "thu" if a.thu else xmp.write_sidecar(r, content, a.ghi_de)
         cnt[status] += 1
         rows.append({
-            "anh": r.name, "canh": sc + 1, "may": ph.model or "",
+            "anh": r.name, "canh": sc + 1, "loai_canh": scene_names.get(sc, ""), "may": ph.model or "",
             "as_shot_K": round(ph.as_shot_temp) if ph.as_shot_temp else "",
             "Temperature": round(v["Temperature"]) if "Temperature" in v else "",
             "Tint": round(v["Tint"]) if "Tint" in v else "",
@@ -273,6 +310,7 @@ def main(argv=None) -> None:
     h = sub.add_parser("hoc", help="học phong cách từ các job đã chỉnh (RAW + .xmp)")
     h.add_argument("thu_muc", nargs="+")
     h.add_argument("-o", "--ra", default="phong-cach.editer")
+    h.add_argument("--hoc-lai", action="store_true", help="bỏ dữ liệu đã học, học lại từ đầu")
     h.add_argument("--luong", type=int, default=min(8, os.cpu_count() or 4))
     h.set_defaults(func=cmd_hoc)
 
@@ -286,6 +324,7 @@ def main(argv=None) -> None:
     c.add_argument("--thu", action="store_true", help="chạy thử, không ghi file")
     c.add_argument("--khong-mask", action="store_true", help="không mang mask AI (da/tóc) sang")
     c.add_argument("--khong-thu-muc-con", action="store_true")
+    c.add_argument("--khong-ai", action="store_true", help="không dùng AI hiểu ảnh")
     c.add_argument("--luong", type=int, default=min(8, os.cpu_count() or 4))
     c.set_defaults(func=cmd_chinh)
 

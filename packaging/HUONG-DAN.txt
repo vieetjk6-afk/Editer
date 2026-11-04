@@ -8,6 +8,10 @@ Bấm đúp  editer-anh.exe  rồi chọn:
     Càng nhiều job, càng nhiều kiểu ánh sáng thì càng chuẩn (nên 2.000+ ảnh).
     Kết quả lưu ở:  C:\Users\<tên bạn>\Editer\phong-cach.editer
 
+    HỌC THÊM: chạy lại mục 1 với job mới (hoặc job tool đã chỉnh mà bạn đã sửa lại
+    trong Camera Raw). Tool chỉ đọc ảnh mới/ảnh vừa sửa, gộp với những gì đã học,
+    và in "Tiến bộ qua các lần học" để bạn thấy độ chính xác thay đổi thế nào.
+
  2. CHỈNH THEO PHONG CÁCH
     Kéo thả thư mục RAW của job mới. Tool ghi file .xmp cạnh từng ảnh.
 
@@ -17,6 +21,13 @@ Bấm đúp  editer-anh.exe  rồi chọn:
 
 Sau đó mở thư mục bằng Adobe Bridge (hoặc mở ảnh bằng Camera Raw): ảnh đã được
 chỉnh sẵn, mọi thanh trượt vẫn chỉnh tiếp được.
+
+AI HIỂU ẢNH (chạy trên máy, không cần mạng/đăng nhập)
+ - Mô hình CLIP xem từng ảnh để biết nội dung: trong nhà/ngoài trời, tiệc, làm lễ,
+   chân dung, ngược sáng, đèn vàng... Tool dùng thông tin này để học sát hơn, chia cảnh
+   chuẩn hơn, và ghi loại cảnh vào bảng editer-bao-cao.csv.
+ - Sau khi học, dòng "nếu không có AI" cho biết AI giúp được bao nhiêu trên chính ảnh
+   của bạn.
 
 AN TOÀN
  - Tool KHÔNG sửa ảnh RAW. Chỉ tạo file .xmp.

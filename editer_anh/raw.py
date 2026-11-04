@@ -194,7 +194,7 @@ def image_stats(rgb_u8: np.ndarray | None) -> dict:
     L, a, b = lab[:, 0], lab[:, 1], lab[:, 2]
     ch = np.hypot(a, b)
     na, nb = neutral_ab(lab)
-    hi = L > np.percentile(L, 97)
+    hi = L >= np.percentile(L, 97)
     return {
         "y_p5": p[0], "y_p25": p[1], "y_p50": p[2], "y_p75": p[3], "y_p95": p[4], "y_p99": p[5],
         "clip_hi": float(np.mean(mx > 0.98)), "clip_lo": float(np.mean(mx < 0.02)),

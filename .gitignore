@@ -23,3 +23,6 @@ build/
 
 # File phong cách đã học (nằm ở máy người dùng)
 *.editer
+
+# Mô hình AI (tải lúc build)
+models/

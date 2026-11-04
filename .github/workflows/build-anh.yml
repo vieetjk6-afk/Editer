@@ -28,26 +28,34 @@ jobs:
       - name: Cài thư viện
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller scikit-image
+          pip install -r requirements.txt pyinstaller scikit-image tokenizers
+
+      - name: Tải mô hình AI (CLIP) + tính nhãn cảnh
+        run: python packaging/get_model.py models
 
       - name: Test
         env:
           PYTHONIOENCODING: utf-8
+          EDITER_MODELS: models
         run: |
+          python tests/test_ai.py
           python tests/test_match.py
           python tests/test_e2e.py "$env:RUNNER_TEMP\e2e"
 
       - name: Đóng gói .exe
         run: |
           pyinstaller --noconfirm --onedir --console --name editer-anh --paths . `
-            --collect-all sklearn --collect-all rawpy packaging/run.py
+            --collect-all sklearn --collect-all rawpy --collect-all onnxruntime `
+            --add-data "models;models" packaging/run.py
           Copy-Item packaging/HUONG-DAN.txt dist/editer-anh/
           Compress-Archive -Path dist/editer-anh -DestinationPath Editer-Anh-Windows.zip
 
       - name: Thử bản .exe (học + chỉnh thật trên ảnh giả lập)
         run: |
           dist/editer-anh/editer-anh.exe --version
-          dist/editer-anh/editer-anh.exe hoc "$env:RUNNER_TEMP\e2e\job" -o "$env:RUNNER_TEMP\pc.editer"
+          $out = dist/editer-anh/editer-anh.exe hoc "$env:RUNNER_TEMP\e2e\job" -o "$env:RUNNER_TEMP\pc.editer" | Out-String
+          Write-Output $out
+          if ($out -notmatch "AI hiểu ảnh: BẬT") { throw "bản .exe không bật được AI" }
           dist/editer-anh/editer-anh.exe chinh "$env:RUNNER_TEMP\e2e\moi" --phong-cach "$env:RUNNER_TEMP\pc.editer" --ghi-de --thu
           dist/editer-anh/editer-anh.exe chinh "$env:RUNNER_TEMP\e2e\moi" --mau-jpg "$env:RUNNER_TEMP\e2e\mau.jpg" --ghi-de --thu
 
