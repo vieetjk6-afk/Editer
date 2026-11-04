@@ -193,6 +193,7 @@ def cmd_chinh(a) -> dict:
     if not a.thu:
         _log("Mở thư mục bằng Adobe Bridge hoặc Camera Raw để xem và chỉnh tiếp.")
     return {"thu_muc": str(folder), "ghi": cnt["ghi"], "de": cnt["de"], "thu": cnt["thu"], "so_anh": len(rows),
+            "tep": [str(r) for r in raws],
             "csv": str(report) if report else None, "so_canh": len(set(scenes)),
             "canh": [{"so": sc + 1, "ten": scene_names.get(sc, ""), "anh": scenes.count(sc)}
                      for sc in sorted(set(scenes))], "chep_mau": jpg_info, "curve": curves[0] if curves else None}
@@ -267,7 +268,14 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
             psmod.cleanup(folder)
     gui_info = {"mo_phong": info.get("mo_phong"), "camera_raw": info.get("camera_raw"),
                 "ref_found": found, "photoshop": ps_obj is not None,
-                "anh_dai_dien": info.get("anh_dai_dien", []), "preset": None}
+                "anh_dai_dien": info.get("anh_dai_dien", []), "preset": None,
+                "mask_ai": info.get("mask_ai"),
+                "tep_dai_dien": [photos[i].path for i in info.get("reps", [])]}
+    if info.get("mask_ai"):
+        mk = info["mask_ai"]
+        _log("Chỉnh riêng từng phần bằng mask AI của Camera Raw: "
+             f"da {'CÓ' if mk['da'] else 'không'}, nền {'CÓ' if mk['nen'] else 'không'}"
+             + ("" if all(mk.values()) else " (Camera Raw không áp mask khi dựng tự động -> chỉ chỉnh toàn ảnh)"))
     if "camera_raw" in info:
         _log(f"KẾT QUẢ ĐO TRÊN CAMERA RAW (ảnh đại diện): {look.fmt_report(info['camera_raw'])}")
     else:

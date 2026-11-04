@@ -7,14 +7,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from editer_anh import color, look, xmp  # noqa: E402
-from editer_anh.look import CLOTHES, OTHER, PLANT, SKIN, SKY, Look, Shot  # noqa: E402
+from editer_anh.look import CLOTHES, FACE, OTHER, PLANT, SKIN, SKY, Look, Shot  # noqa: E402
 
 AS_SHOT = Shot(1e6 / 5500, 0.0, 0.0)
 
 
 def scene(seed: int, h: int = 160, w: int = 240, light_k: float | None = None, ev: float = 0.0,
-          skin_lab=(68, 14, 18)):
-    """Ảnh 'cưới' tổng hợp: tường, trời, cây, váy trắng, vest đen, da, vài đồ vật màu."""
+          skin_lab=(68, 14, 18), red_dress: bool = False):
+    """Ảnh 'cưới' tổng hợp: tường, trời, cây, váy trắng, vest đen, mặt, tay, vài đồ vật màu
+    (+ áo dài đỏ nếu red_dress)."""
     rng = np.random.default_rng(seed)
     lab = np.zeros((h, w, 3))
     reg = np.full((h, w), OTHER, np.uint8)
@@ -35,7 +36,14 @@ def scene(seed: int, h: int = 160, w: int = 240, light_k: float | None = None, e
     for cx in (x0 + int(w * 0.09), x0 + int(w * 0.26)):         # 2 khuôn mặt
         m = ((yy - h * 0.38) / (h * 0.08)) ** 2 + ((xx - cx) / (w * 0.035)) ** 2 < 1
         lab[m] = skin_lab
-        reg[m] = SKIN
+        reg[m] = FACE
+    arm = (yy > h * 0.55) & (yy < h * 0.62) & (xx > x0 - int(w * 0.06)) & (xx < x0)   # một cánh tay
+    lab[arm] = (skin_lab[0] - 4, skin_lab[1] + 1, skin_lab[2] + 2)
+    reg[arm] = SKIN
+    if red_dress:   # cô dâu áo dài đỏ
+        dm = (yy > h * 0.45) & (xx > pw + 6) & (xx < pw + int(w * 0.16))
+        lab[dm] = (40, 55, 30)
+        reg[dm] = CLOTHES
     for c in [(45, 55, 30), (80, 0, 70), (40, 35, -35)]:        # đồ vật màu
         y, x = rng.integers(sky_h, h - 25), rng.integers(pw, x0 - 25)
         lab[y:y + 22, x:x + 22] = c
@@ -50,9 +58,9 @@ def scene(seed: int, h: int = 160, w: int = 240, light_k: float | None = None, e
     return (out * 255 + 0.5).astype(np.uint8), reg
 
 
-def render(img, lk: Look, sh: Shot, k=look.DEFAULT, base_shot=AS_SHOT):
+def render(img, lk: Look, sh: Shot, k=look.DEFAULT, base_shot=AS_SHOT, reg=None):
     px = img.reshape(-1, 3) / 255.0
-    y = look.simulate(px, Look(), base_shot, lk, sh, k)
+    y = look.simulate(px, Look(), base_shot, lk, sh, k, reg=None if reg is None else reg.reshape(-1))
     return (np.clip(y, 0, 1).reshape(img.shape) * 255 + 0.5).astype(np.uint8)
 
 
@@ -99,14 +107,20 @@ def test_tungsten_needs_cooler_wb():
     assert look.report([m], ref)["trắng"] < 2.0
 
 
-# "Camera Raw giả": cố tình khác mô phỏng của tool (thang HSL, grading, WB, và cách dựng gốc)
-FAKE = look.Consts(hue_frac=0.8, lum_k=22.0, grade_k=55.0)
+# "Camera Raw giả": cố tình khác mô phỏng của tool (thang HSL, grading, WB, chỉnh cục bộ,
+# và cách dựng gốc)
+FAKE = look.Consts(hue_frac=0.8, lum_k=22.0, grade_k=55.0, loc_temp=0.35, loc_tint=0.14)
 
 
-def fake_acr(preview, lk, sh):
+def fake_acr(preview, lk, sh, reg=None, masks_work=True):
     base = render(preview, Look(curve=np.array([0.0, 40, 92, 166, 216, 255]), sat=np.full(8, 12.0)),
                   AS_SHOT, look.DEFAULT)               # Adobe Color khác ảnh xem trước của máy
-    return render(base, lk, Shot(sh.mired, sh.tint, sh.ev + 0.15), FAKE)
+    if not masks_work:   # Camera Raw không áp mask AI -> chỉnh cục bộ không có tác dụng
+        lk = lk.copy()
+        lk.skin_loc, lk.bg_loc = np.zeros(4), np.zeros(4)
+    lk2 = lk.copy()
+    lk2.skin_loc = lk.skin_loc * np.array([1.3, 1, 1, 0.8])   # thang cục bộ cũng khác
+    return render(base, lk2, Shot(sh.mired, sh.tint, sh.ev + 0.15), FAKE, reg=reg)
 
 
 def test_closed_loop_fixes_wrong_simulator():
@@ -114,20 +128,78 @@ def test_closed_loop_fixes_wrong_simulator():
     có đáp án hoàn hảo). Mô phỏng của tool KHÁC Camera Raw giả (thang HSL/grading, cách
     dựng gốc, exposure) => ước lượng ban đầu lệch; vòng kiểm tra phải kéo về gần đáp án."""
     target, reg = scene(4, light_k=4200, ev=-0.4)
-    ref_img = fake_acr(target, TRUE_LOOK, Shot(1e6 / 4300, 3.0, 0.5))
+    true = TRUE_LOOK.copy()
+    true.skin_loc = np.array([0.3, 15, 5, 10.0])               # đáp án có chỉnh riêng vùng da
+    ref_img = fake_acr(target, true, Shot(1e6 / 4300, 3.0, 0.5), reg)
     _, _, ref_sel, ref = stats_of(ref_img, reg, seed=77)
-    s, idx, sel, _ = stats_of(target, reg)
-    reps = [look.Rep(s.px, sel, Look(), AS_SHOT)]
-    lk0, sh0 = look.solve(reps, ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT])
+    s, idx, sel, m0 = stats_of(target, reg)
+    reps = [look.Rep(s.px, sel, Look(), AS_SHOT, s.reg)]
+    lk0, sh0 = look.solve(reps, ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=False)
     t = time.time()
-    best, hist = look.refine(reps, lambda i, lk, sh: fake_acr(target, lk, sh), lambda im: reg,
-                             ref, ref_sel, lk0, sh0, [AS_SHOT], iters=5)
+    best, hist, used = look.refine(reps, lambda i, lk, sh: fake_acr(target, lk, sh, reg), lambda im: reg,
+                                   ref, ref_sel, lk0, sh0, [AS_SHOT], iters=5)
+    assert used == (True, True), f"phải nhận ra mask da/nền có tác dụng: {used}"
     first, last = hist[0][0], best[2]
     print(f"[vòng kiểm tra] điểm lệch: {first:.2f} -> {last:.2f} sau {len(hist)} lượt ({time.time() - t:.1f}s)")
     print(f"    cuối: {look.fmt_report(best[3])}")
     # Thí nghiệm trên 6 cảnh: trung bình 15.7 -> 3.7, da ΔE TB 1.9, trắng TB 2.5.
     assert last < first * 0.3, "vòng kiểm tra phải giảm lệch rõ rệt"
     assert best[3]["da"] < 2.0 and best[3]["trắng"] < 4.0
+
+
+def test_probe_masks_off():
+    """Camera Raw không áp mask AI -> tool phải nhận ra và tắt chỉnh cục bộ."""
+    target, reg = scene(6, light_k=4600)
+    ref_img = fake_acr(scene(7)[0], TRUE_LOOK, Shot(1e6 / 5500, 0, 0.1), scene(7)[1])
+    _, _, ref_sel, ref = stats_of(ref_img, scene(7)[1])
+    s, idx, sel, _ = stats_of(target, reg)
+    reps = [look.Rep(s.px, sel, Look(), AS_SHOT, s.reg)]
+    lk0, sh0 = look.solve(reps, ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=False)
+    best, hist, used = look.refine(reps, lambda i, lk, sh: fake_acr(target, lk, sh, reg, masks_work=False),
+                                   lambda im: reg, ref, ref_sel, lk0, sh0, [AS_SHOT], iters=1, log=lambda m: None)
+    assert used == (False, False), used
+    assert not np.any(best[0].skin_loc) and not np.any(best[0].bg_loc), "không được ghi chỉnh cục bộ vô tác dụng"
+    print("[mask AI không hoạt động] nhận ra và tắt chỉnh cục bộ: OK")
+
+
+def test_keep_red_dress():
+    """Ảnh mẫu tông ấm, có mặt người; ảnh đích có áo dài đỏ: áo phải giữ màu đỏ."""
+    target, reg = scene(9, light_k=4400, red_dress=True)
+    ref_img, rreg = scene(10, skin_lab=(72, 18, 24))
+    ref_img = render(ref_img, Look(grade=np.array([0, 0, 0, 0, 4, 8.0]), sat=np.array([0, 10, 0, -40, 0, 0, 0, 0.0])),
+                     Shot(1e6 / 5200, 0, 0.2))
+    _, _, ref_sel, ref = stats_of(ref_img, rreg)
+    s, idx, sel, m0 = stats_of(target, reg)
+    assert "clothes" in m0, "phải nhận ra áo màu"
+    rep_ = look.Rep(s.px, sel, Look(), AS_SHOT, s.reg, {"clothes": m0["clothes"]})
+    lk, shots = look.solve([rep_], ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=(True, True))
+    out = render(target, lk, shots[0], reg=reg)
+    m = look.measure(look.sample_at(out, idx, s).px, sel)
+    rp = look.report([m], ref, [{"clothes": m0["clothes"]}])
+    print(f"[giữ áo đỏ] {look.fmt_report(rp)}  | da cục bộ {np.round(lk.skin_loc, 2)}")
+    assert rp["áo"] < 3.0, "áo đỏ bị đổi màu"
+    assert rp["da"] < 2.0 and rp["trắng"] < 2.0
+
+
+def test_dark_red_curtain():
+    """Lỗi thật đã gặp: ảnh mẫu có rèm ĐỎ SẪM chiếm vùng tối -> bản cũ tưởng đó là "ám màu
+    vùng tối" và nhuộm cam cả ảnh. Giờ vùng tối trung tính (vest đen) phải giữ trung tính."""
+    ref_img, rreg = scene(12)
+    lab = color.srgb_to_lab(ref_img.reshape(-1, 3) / 255.0).reshape(ref_img.shape)
+    lab[: int(ref_img.shape[0] * 0.5), :] = (18, 38, 18)          # rèm đỏ sẫm che nửa trên
+    rreg = rreg.copy()
+    rreg[: int(ref_img.shape[0] * 0.5), :] = OTHER
+    ref_img = (color.lab_to_srgb(lab.reshape(-1, 3)).reshape(ref_img.shape) * 255 + 0.5).astype(np.uint8)
+    _, _, ref_sel, ref = stats_of(ref_img, rreg)
+    target, reg = scene(13)
+    s, idx, sel, m0 = stats_of(target, reg)
+    lk, shots = look.solve([look.Rep(s.px, sel, Look(), AS_SHOT, s.reg)], ref, ref_sel, Look(), [AS_SHOT],
+                           [AS_SHOT], use_local=False)
+    out = render(target, lk, shots[0])
+    suit = (reg == CLOTHES) & (color.srgb_to_lab(target.reshape(-1, 3) / 255.0)[:, 0].reshape(reg.shape) < 30)
+    ab = color.srgb_to_lab(out.reshape(-1, 3) / 255.0)[suit.reshape(-1), 1:].mean(axis=0)
+    print(f"[rèm đỏ] màu vest đen sau khi chép: a*={ab[0]:+.1f} b*={ab[1]:+.1f} (gần 0 = vẫn trung tính)")
+    assert np.hypot(*ab) < 4.0, "vùng tối trung tính bị nhuộm màu theo rèm đỏ"
 
 
 def test_xmp_roundtrip(tmp: Path):
@@ -164,6 +236,9 @@ if __name__ == "__main__":
     test_self_match()
     test_tungsten_needs_cooler_wb()
     test_closed_loop_fixes_wrong_simulator()
+    test_probe_masks_off()
+    test_keep_red_dress()
+    test_dark_red_curtain()
     with tempfile.TemporaryDirectory() as d:
         test_xmp_roundtrip(Path(d))
     test_transfer()

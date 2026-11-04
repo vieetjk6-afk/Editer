@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.4)
+## Editer Ảnh (bản 0.5)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
@@ -40,6 +40,17 @@ Có 3 chức năng:
    - Cân bằng trắng và exposure được chuyển từ ảnh đại diện sang cả lô, theo điểm trắng và
      độ sáng da của từng ảnh.
    - `--luu-preset TÊN`: lưu phần màu thành preset Camera Raw.
+   - **0.5 — chỉnh từng phần:** ghi thêm 2 mask AI của Camera Raw (`Editer - Da`: People Facial
+     Skin + Body Skin; `Editer - Nền`: Background), mỗi mask có Exposure/Temp/Tint/Saturation
+     riêng, tối ưu cùng thông số toàn ảnh. Ở lượt dựng thật đầu tiên tool dựng thử mask Da +0,8 EV
+     / Nền −0,8 EV: nếu Camera Raw không áp mask khi dựng tự động thì tắt chỉnh cục bộ.
+   - **0.5 — đo theo nội dung:** da đo ở mặt trước (SegFormer clothes: Face), trắng và ám màu
+     vùng tối/sáng chỉ đo trên điểm xám thật (không lẫn rèm đỏ/áo màu), bỏ vùng < 3% ảnh. Màu
+     áo được **giữ như ảnh gốc** (so với gốc, không so với ảnh mẫu).
+   - **0.5 — giao diện:** nút mở ảnh đại diện / 60 ảnh đầu trong Photoshop (Camera Raw) để cân
+     lại; mục **Cập nhật** tải bản mới từ Releases (repo riêng tư → cần token chỉ-đọc, lưu ở
+     `%USERPROFILE%\Editer\cau-hinh.json`). Dữ liệu đã học nằm ở `%USERPROFILE%\Editer`
+     (không trong thư mục chương trình) và được sao lưu 5 bản gần nhất ở `sao-luu\`.
 
 **AI hiểu ảnh (0.2):** mô hình CLIP (ONNX, ~90MB, chạy CPU trên máy, không cần mạng) biến
 mỗi ảnh thành "dấu vân tay nội dung". Dấu vân tay này được dùng để:
@@ -75,7 +86,7 @@ Giới hạn hiện tại:
 - Bản ≤ 0.2 ghi Color Grading bằng khoá Camera Raw không hiểu (`ColorGradeShadowHue`),
   nên phần đó không có tác dụng. Đã sửa ở bản 0.3 (`SplitToning...`).
 
-Chạy test: `python tests/test_look.py`, `python tests/test_ps.py`, `python tests/test_gui_api.py`,
+Chạy test: `python tests/test_look.py`, `python tests/test_ps.py`, `python tests/test_gui_api.py`, `python tests/test_capnhat.py`,
 `python tests/test_e2e.py <thư mục tạm>`. Test có AI cần mô hình: `python packaging/get_model.py models`
 (cần mạng), hoặc mô hình giả `python tests/make_dummy_model.py <thư mục>` + `EDITER_MODELS=<thư mục>`.
 

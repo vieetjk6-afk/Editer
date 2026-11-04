@@ -76,6 +76,8 @@ class Api:
         self._lines: list[str] = []
         self._state = {"chay": False, "viec": None, "ket_qua": None, "loi": None,
                        "tien_do": None, "buoc": "", "bat_dau": None}
+        self._rel = None                  # bản mới tìm thấy trên GitHub (để tải)
+        self._upd = {"chay": False, "tien_do": None, "exe": None, "loi": None}
 
     # ------------------------------------------------------------------ thông tin
     def info(self) -> dict:
@@ -89,9 +91,13 @@ class Api:
                            "ngay": time.strftime("%d/%m/%Y", time.localtime(STYLE_FILE.stat().st_mtime))})
             except BaseException as e:   # file cũ/hỏng: báo, không làm sập giao diện
                 st.update({"co": False, "loi": str(e)})
+        from .. import capnhat
         from ..ai import GPU_OFF
+        from ..cli import STYLE_DIR
         return {"phien_ban": __version__, "phong_cach": st, "nhat_ky": str(nhatky.FILE),
-                "windows": sys.platform == "win32", "gpu_tat": GPU_OFF.exists()}
+                "windows": sys.platform == "win32", "gpu_tat": GPU_OFF.exists(),
+                "du_lieu": str(STYLE_DIR), "sao_luu": str(STYLE_DIR / "sao-luu"),
+                "co_token": bool(capnhat.load_config().get("github_token"))}
 
     def ping(self) -> str:
         return "ok"
@@ -176,7 +182,7 @@ class Api:
         return out
 
     def mo(self, path: str) -> None:
-        """Mở thư mục / file bằng ứng dụng mặc định của Windows."""
+        """Mở thư mục / file / trang web bằng ứng dụng mặc định của Windows."""
         try:
             if sys.platform == "win32":
                 os.startfile(path)  # noqa: S606
@@ -184,6 +190,84 @@ class Api:
                 subprocess.Popen(["xdg-open", path])
         except Exception as e:
             self._push(f"Không mở được {path}: {e}")
+
+    def mo_photoshop(self, paths: list[str]) -> dict:
+        """Mở ảnh RAW trong Photoshop -> Camera Raw hiện ra với thông số tool đã ghi để cân lại."""
+        from .. import ps
+        files = [p for p in (paths or []) if Path(p).is_file()]
+        if not files:
+            return {"ok": False, "loi": "Không thấy file ảnh RAW để mở (thư mục đã đổi chỗ?)."}
+        try:
+            n = ps.open_files(files, limit=60)
+        except Exception as e:
+            return {"ok": False, "loi": f"Không mở được Photoshop: {e}"}
+        nhatky.note(f"mở {n} ảnh trong Photoshop")
+        return {"ok": True, "so": n, "bo": len(files) - n}
+
+    # ------------------------------------------------------------------ cập nhật phiên bản
+    def kiem_tra_cap_nhat(self) -> dict:
+        from .. import capnhat
+        r = capnhat.check()
+        self._rel = r.pop("_release", None) or self._rel
+        r["co_token"] = bool(capnhat.load_config().get("github_token"))
+        return r
+
+    def luu_token(self, token: str) -> dict:
+        """Thử mã truy cập; đúng thì lưu (chỉ trên máy này) và trả kết quả kiểm tra bản mới."""
+        from .. import capnhat
+        token = (token or "").strip()
+        if not token:
+            return {"can_token": True, "loi": "Chưa dán mã."}
+        r = capnhat.check(token)
+        if r.get("can_token") or ("loi" in r and "co_ban_moi" not in r):
+            return r                       # mã sai / lỗi mạng: không lưu
+        capnhat.save_token(token)
+        self._rel = r.pop("_release", None)
+        r["co_token"] = True
+        nhatky.note("đã lưu mã truy cập GitHub")
+        return r
+
+    def tai_ban_moi(self) -> dict:
+        from .. import capnhat
+        if self._upd["chay"]:
+            return {"ok": False, "loi": "Đang tải rồi."}
+        if not self._rel:
+            return {"ok": False, "loi": "Bấm “Kiểm tra bản mới” trước."}
+        rel, token = self._rel, capnhat.load_config().get("github_token")
+        self._upd = {"chay": True, "tien_do": [0, 0], "exe": None, "loi": None}
+
+        def work():
+            try:
+                exe = capnhat.download(rel, token, lambda d, t: self._upd.update(tien_do=[d, t]))
+                self._upd.update(exe=str(exe), thu_muc=str(Path(exe).parent))
+            except Exception as e:
+                nhatky.note(f"tải bản mới lỗi: {type(e).__name__}: {e}")
+                self._upd.update(loi=f"Không tải được bản mới: {e}")
+            finally:
+                self._upd["chay"] = False
+
+        threading.Thread(target=work, daemon=True).start()
+        return {"ok": True}
+
+    def trang_thai_cap_nhat(self) -> dict:
+        return dict(self._upd)
+
+    def mo_ban_moi(self) -> dict:
+        """Mở bản vừa tải rồi đóng bản này (dữ liệu đã học dùng chung, không mất)."""
+        from ..ngoai import launch
+        exe = self._upd.get("exe")
+        if not exe or not Path(exe).is_file():
+            return {"ok": False, "loi": "Chưa tải xong bản mới."}
+        if self._state["chay"]:
+            return {"ok": False, "loi": "Đang chạy một việc — chờ xong rồi hãy mở bản mới."}
+        try:
+            launch([exe], cwd=str(Path(exe).parent))
+        except Exception as e:
+            return {"ok": False, "loi": f"Không mở được bản mới: {e}"}
+        nhatky.note(f"mở bản mới: {exe}")
+        if self._win is not None:
+            threading.Timer(1.5, self._win.destroy).start()
+        return {"ok": True}
 
     # ------------------------------------------------------------------ chạy việc
     def _push(self, line: str) -> None:

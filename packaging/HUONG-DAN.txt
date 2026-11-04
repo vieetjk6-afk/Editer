@@ -2,8 +2,24 @@ EDITER ẢNH — HƯỚNG DẪN NHANH
 ============================
 
 Bấm đúp  "Editer Anh.exe"  -> cửa sổ giao diện (bấm nút, kéo thả ảnh/thư mục vào là chạy).
-Bên trái có 4 mục: Chép màu từ ảnh mẫu · Chỉnh theo phong cách · Học phong cách · Kiểm tra Photoshop.
-Kết quả hiện ngay trong cửa sổ: độ lệch màu (ΔE) từng vùng + ảnh mẫu / gốc / sau đặt cạnh nhau.
+Bên trái có 5 mục: Chép màu từ ảnh mẫu · Chỉnh theo phong cách · Học phong cách · Kiểm tra Photoshop
+· Cập nhật. Kết quả hiện ngay trong cửa sổ: độ lệch màu (ΔE) từng vùng + ảnh mẫu / gốc / sau.
+
+MỚI Ở BẢN 0.5
+ - Chỉnh RIÊNG TỪNG PHẦN: tool thêm mask AI của Camera Raw "Editer - Da" (da mặt + da người)
+   và "Editer - Nền" (phông, trời, cây), mỗi mask có Exposure / Nhiệt độ màu / Tint / Saturation
+   riêng. Tool tự dựng thử để biết Camera Raw có áp mask khi chạy tự động không — không áp
+   thì chỉ chỉnh toàn ảnh và báo rõ. Mở Camera Raw > Masking để xem / kéo lại.
+ - GIỮ MÀU ÁO: màu áo/váy (áo dài đỏ, vest...) được giữ như ảnh gốc, không bị kéo theo màu
+   của ảnh mẫu. Thẻ "Màu áo (giữ như gốc)" cho biết lệch bao nhiêu so với gốc.
+ - Đo màu chuẩn hơn: da đo ở mặt trước (không lẫn tóc/áo), "trắng" và ám màu vùng tối/sáng
+   chỉ đo trên màu xám thật (rèm đỏ, áo đỏ không còn bị hiểu là ám đỏ), vùng quá nhỏ bị bỏ qua.
+ - MỞ TRONG PHOTOSHOP ĐỂ CÂN LẠI: chép màu xong bấm "Mở ảnh đại diện trong Photoshop" hoặc
+   "Mở 60 ảnh đầu trong Photoshop" -> Camera Raw hiện ra với thông số tool đã ghi. Chỉnh tay
+   rồi bấm Done là lưu vào .xmp. Áp cho cả nhóm: chọn ảnh ở dải bên trái (Ctrl+A) > chuột
+   phải > Sync Settings.
+ - CẬP NHẬT không mất dữ liệu: mục "Cập nhật" kiểm tra bản mới, tải về thư mục riêng cạnh
+   bản đang dùng, bấm "Mở bản mới" là xong. Xem mục DỮ LIỆU CỦA BẠN bên dưới.
 
 (Nếu cửa sổ không mở được: cài "Microsoft Edge WebView2 Runtime" của Microsoft, hoặc dùng
  editer-anh.exe — bản menu chữ, cùng các chức năng bên dưới.)
@@ -53,6 +69,19 @@ AI HIỂU ẢNH (chạy trên máy, không cần mạng/đăng nhập)
    chuẩn hơn, và ghi loại cảnh vào bảng editer-bao-cao.csv.
  - Sau khi học, dòng "nếu không có AI" cho biết AI giúp được bao nhiêu trên chính ảnh
    của bạn.
+
+DỮ LIỆU CỦA BẠN (giữ nguyên khi cập nhật)
+ - Mọi thứ tool học/ghi nhớ nằm ở  C:\Users\<tên bạn>\Editer\  — KHÔNG nằm trong thư mục
+   chương trình. Bản mới dùng lại ngay; xoá thư mục chương trình cũ cũng không mất gì.
+     phong-cach.editer   phong cách đã học
+     sao-luu\            5 bản sao lưu gần nhất của phong cách (tự tạo mỗi lần học)
+     nhat-ky.txt          nhật ký
+     cau-hinh.json        cài đặt (mã truy cập GitHub để cập nhật)
+ - Lần đầu cập nhật cần "mã truy cập GitHub" vì repo để riêng tư. Trong mục Cập nhật có
+   hướng dẫn từng bước: tạo mã Fine-grained, chọn repo Editer, quyền Contents = Read-only.
+   Mã chỉ lưu trên máy bạn.
+ - Cập nhật bằng tay cũng được: tải Editer-Anh-Windows.zip mới ở mục Releases, giải nén ra
+   thư mục mới, chạy "Editer Anh.exe" mới — dữ liệu vẫn còn.
 
 AN TOÀN
  - Tool KHÔNG sửa ảnh RAW. Chỉ tạo file .xmp.

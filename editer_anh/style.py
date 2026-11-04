@@ -311,8 +311,21 @@ def predict(model: dict, photos: list[raw.Photo], embs: np.ndarray | None = None
 
 
 def save(model: dict, path: str | Path) -> None:
-    with open(path, "wb") as f:
+    """Ghi phong cách. Bản cũ được SAO LƯU (thư mục sao-luu, giữ 5 bản gần nhất) — không
+    bao giờ mất dữ liệu đã học, kể cả khi cập nhật phiên bản mới."""
+    import shutil
+    import time
+    path = Path(path)
+    if path.exists():
+        bk = path.parent / "sao-luu"
+        bk.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, bk / f"{path.stem}-{time.strftime('%Y%m%d-%H%M%S')}{path.suffix}")
+        for old in sorted(bk.glob(f"{path.stem}-*{path.suffix}"))[:-5]:
+            old.unlink()
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as f:
         pickle.dump(model, f)
+    tmp.replace(path)
 
 
 def load(path: str | Path) -> dict:

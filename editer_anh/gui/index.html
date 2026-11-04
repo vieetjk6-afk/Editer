@@ -135,10 +135,30 @@
   .switch input:focus-visible + .tr { outline: 2px solid var(--accent); outline-offset: 2px; }
   input[type=range] { width: 220px; accent-color: var(--accent); }
   .rangeval { font-variant-numeric: tabular-nums; min-width: 46px; display: inline-block; text-align: right; }
-  input[type=text] {
+  input[type=text], input[type=password] {
     background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 260px;
   }
-  input[type=text]::placeholder { color: var(--faint); }
+  input[type=text]::placeholder, input[type=password]::placeholder { color: var(--faint); }
+  .nav .badge {
+    margin-left: auto; background: var(--ok); color: #06281a; font-size: 11px; font-weight: 700;
+    padding: 0 7px; border-radius: 99px; line-height: 18px;
+  }
+  .bad-text { color: var(--bad); }
+  .notes {
+    white-space: pre-wrap; background: var(--card2); border-radius: 8px; padding: 10px 12px; margin-top: 10px;
+    color: var(--muted); font-size: 13px; max-height: 220px; overflow: auto;
+  }
+  ol.steps { margin: 0 0 14px; padding-left: 20px; color: var(--muted); }
+  ol.steps li { margin: 5px 0; }
+  ol.steps b { color: var(--text); font-weight: 600; }
+  .token-row { display: flex; gap: 10px; align-items: center; }
+  .token-row input { flex: 1; width: auto; min-width: 0; }
+  .note-line { margin: 14px 0 0; padding: 10px 12px; border-radius: 9px; background: var(--card2); color: var(--muted); font-size: 13px; }
+  .note-line b { color: var(--text); font-weight: 600; }
+  .note-line .notes { background: var(--bg); }
+  .note-line .btn:not(.primary) { color: var(--text); }
+  .ps-box { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  td.path { color: var(--muted); font-size: 12.5px; word-break: break-all; }
   .callout {
     border: 1px solid rgba(240, 180, 74, .45); background: rgba(240, 180, 74, .08); color: #f5d79c;
     border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;
@@ -206,6 +226,7 @@
   <symbol id="i-ps" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 15V9h2.2a2 2 0 0 1 0 4H8M17 10.2c-.4-.5-1-.7-1.6-.7-.8 0-1.4.4-1.4 1s.6.8 1.4 1 1.6.5 1.6 1.2-.7 1.1-1.5 1.1c-.7 0-1.3-.3-1.7-.8"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
+  <symbol id="i-update" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
   <symbol id="i-raw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
 </svg>
 
@@ -215,6 +236,7 @@
   <button class="nav" data-view="pc"><svg><use href="#i-sliders"/></svg>Chỉnh theo phong cách</button>
   <button class="nav" data-view="hoc"><svg><use href="#i-learn"/></svg>Học phong cách</button>
   <button class="nav" data-view="ps"><svg><use href="#i-ps"/></svg>Kiểm tra Photoshop</button>
+  <button class="nav" data-view="cn"><svg><use href="#i-update"/></svg>Cập nhật<span class="badge" id="cn-badge" hidden>mới</span></button>
   <div class="side-foot">
     <div class="chip" id="chip-style">Phong cách: <b>đang tải…</b></div>
     <div class="chip warn" id="chip-gpu" hidden>AI đang chạy bằng <b>CPU</b> (lần trước card đồ hoạ bị lỗi).
@@ -355,6 +377,45 @@
     </div>
     <div id="out-ps"></div>
   </section>
+
+  <!-- ===================== CẬP NHẬT ===================== -->
+  <section class="view" id="view-cn">
+    <div class="head">
+      <h1>Cập nhật phiên bản</h1>
+      <p>Bản mới được tải vào một thư mục riêng cạnh bản đang dùng (không ghi đè). Phong cách đã học, nhật ký và cài đặt
+        nằm trong <b>thư mục dữ liệu</b> riêng của bạn — không nằm trong thư mục chương trình — nên bản mới dùng lại ngay, không mất gì.</p>
+    </div>
+    <div class="card">
+      <h3>Phiên bản</h3>
+      <div class="stats">Đang dùng bản <b id="cn-cur"></b></div>
+      <div id="cn-out"></div>
+      <div class="row-btns">
+        <button class="btn" data-act="cn-check">Kiểm tra bản mới</button>
+        <button class="linkbtn" data-act="cn-token-show">Nhập / đổi mã truy cập GitHub</button>
+      </div>
+    </div>
+    <div class="card" id="cn-token" hidden>
+      <h3>Mã truy cập GitHub — chỉ làm 1 lần</h3>
+      <p class="sub" id="cn-token-why">Repo Editer để riêng tư (vì có ảnh và .xmp của khách) nên cần một mã chỉ-đọc để tải bản mới.</p>
+      <ol class="steps">
+        <li>Bấm <button class="linkbtn" data-act="open-url" data-url="https://github.com/settings/personal-access-tokens/new">mở trang tạo mã trên GitHub</button> (đăng nhập tài khoản GitHub của bạn).</li>
+        <li><b>Token name</b>: Editer · <b>Expiration</b>: chọn thời hạn dài nhất.</li>
+        <li><b>Repository access</b>: Only select repositories → chọn <b>Editer</b>.</li>
+        <li><b>Permissions</b> → Repository permissions → <b>Contents</b>: Read-only.</li>
+        <li>Bấm <b>Generate token</b>, chép mã (bắt đầu bằng <b>github_pat_</b>) rồi dán vào ô dưới.</li>
+      </ol>
+      <div class="token-row">
+        <input type="password" id="cn-token-in" placeholder="github_pat_…" autocomplete="off" spellcheck="false">
+        <button class="btn" data-act="cn-save">Lưu mã</button>
+      </div>
+      <p class="hint">Mã chỉ lưu trên máy này (file cau-hinh.json trong thư mục dữ liệu), chỉ có quyền đọc, chỉ gửi tới GitHub.</p>
+    </div>
+    <div class="card">
+      <h3>Dữ liệu của bạn — giữ nguyên khi cập nhật</h3>
+      <table><tbody id="cn-data"></tbody></table>
+      <div class="row-btns"><button class="btn" data-act="open-data">Mở thư mục dữ liệu</button></div>
+    </div>
+  </section>
 </main>
 <div class="toast" id="toast"></div>
 
@@ -365,7 +426,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtN = (n) => Number(n).toLocaleString("vi-VN");
 let API = null, INFO = null;
-const S = { jpg: [], rawdir: null, pcdir: null, hoc: [], psraw: null, busy: false, zone: null, view: "chep" };
+const S = { jpg: [], rawdir: null, pcdir: null, hoc: [], psraw: null, busy: false, zone: null, view: "chep", res: {} };
 
 function toast(msg, ms = 3800) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
@@ -475,6 +536,14 @@ document.addEventListener("click", async (e) => {
   else if (act === "pick-psraw") setRaw(await API.chon_raw());
   else if (act.startsWith("go-")) start(act.slice(3));
   else if (act === "open") API.mo(el.dataset.path);
+  else if (act === "open-url") API.mo(el.dataset.url);
+  else if (act === "open-data") API.mo(INFO.du_lieu);
+  else if (act === "ps-open") psOpen(el.dataset.v, el.dataset.k);
+  else if (act === "cn-check") cnCheck(false);
+  else if (act === "cn-token-show") { $("#cn-token").hidden = false; $("#cn-token-in").focus(); }
+  else if (act === "cn-save") cnSave(el);
+  else if (act === "cn-dl") cnDownload(el);
+  else if (act === "cn-run") cnRun(el);
 });
 $$(".drop").forEach((z) => {
   z.addEventListener("dragenter", (e) => { e.preventDefault(); z.classList.add("over"); S.zone = z.dataset.zone; });
@@ -495,6 +564,7 @@ window.onNativeDrop = async (paths) => {
   else if (zone === "rawdir" || zone === "pcdir") folder ? setFolder(zone, folder) : toast("Ô này nhận thư mục ảnh RAW.");
   else if (zone === "hoc") { if (!k.thu_muc.length) toast("Ô này nhận thư mục job."); for (const p of k.thu_muc) await addHoc(p); }
   else if (zone === "psraw") k.raw.length ? setRaw(k.raw[0]) : toast("Ô này nhận 1 file ảnh RAW.");
+  else toast("Mục này không nhận kéo thả.");
 };
 
 /* ---------- chạy việc ---------- */
@@ -543,7 +613,8 @@ function verdict(v) {
   return ["bad", "Còn khác rõ"];
 }
 function metricTiles(rp) {
-  const names = [["da", "Da người"], ["trắng", "Màu trắng"], ["trời", "Trời"], ["cây", "Cây lá"], ["sáng tối", "Sáng tối"]];
+  const names = [["da", "Da người"], ["trắng", "Màu trắng"], ["trời", "Trời"], ["cây", "Cây lá"], ["sáng tối", "Sáng tối"],
+                 ["áo", "Màu áo (giữ như gốc)"]];
   return `<div class="metrics">${names.filter(([k]) => rp && rp[k] != null).map(([k, label]) => {
     const [cls, txt] = verdict(rp[k]);
     return `<div class="metric ${cls}"><div class="k">${label}</div><div class="v">${rp[k].toFixed(1)}</div><div class="q">${txt}</div></div>`;
@@ -574,11 +645,31 @@ function finish(view, st) {
     if (runCard) runCard.querySelector("details").open = true;
   } else {
     const res = st.ket_qua || {};
+    S.res[view] = res;
     box.innerHTML = ({ chep: resChep, pc: resPc, hoc: resHoc, ps: resPs }[view])(res);
     if (view === "hoc") refreshInfo();
   }
   out.appendChild(box);
   box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function psBtns(res, view) {
+  if (!INFO || !INFO.windows) return "";
+  const reps = ((res.chep_mau || {}).tep_dai_dien || []).length, all = (res.tep || []).length;
+  if (!all) return "";
+  return `<div class="ps-box"><div class="row-btns" style="margin-top:0">
+      ${reps ? `<button class="btn" data-act="ps-open" data-v="${view}" data-k="rep">Mở ${reps} ảnh đại diện trong Photoshop</button>` : ""}
+      <button class="btn" data-act="ps-open" data-v="${view}" data-k="all">Mở ${all > 60 ? "60 ảnh đầu" : `cả ${all} ảnh`} trong Photoshop</button></div>
+    <p class="hint">Camera Raw mở với thông số tool đã ghi — cân lại bằng tay rồi bấm <b>Done</b> là lưu vào .xmp.
+      Áp chỉnh tay cho cả nhóm: chọn các ảnh ở dải bên trái (Ctrl+A) → chuột phải → <b>Sync Settings</b>.</p></div>`;
+}
+function maskLine(mk) {
+  if (!mk) return "";
+  const on = [mk.da && "da người", mk.nen && "nền (trời, cây, phông)"].filter(Boolean);
+  return on.length
+    ? `<p class="note-line">Đã chỉnh riêng <b>${on.join("</b> và <b>")}</b> bằng mask AI của Camera Raw — mở Camera Raw, mục <b>Masking</b>
+        (tên “Editer - …”) để xem hoặc kéo lại.</p>`
+    : `<p class="note-line">Camera Raw không áp mask AI khi dựng tự động, nên lần này chỉ chỉnh toàn ảnh (đã giữ màu áo).
+        Muốn chỉnh riêng da: mở ảnh trong Photoshop bên dưới và thêm mask People → Skin.</p>`;
 }
 function written(res) {
   if (res.thong_bao) return esc(res.thong_bao);
@@ -600,14 +691,15 @@ function resChep(res) {
     <p class="sub">${real ? "Độ lệch màu đo trên ảnh <b>Camera Raw dựng thật</b> so với ảnh mẫu (ΔE: dưới 2 mắt gần như không phân biệt)."
       : "Độ lệch <b>ước lượng</b> (chưa kiểm tra bằng Camera Raw). Bật “Kiểm tra bằng Camera Raw thật” để có số đo thật."}</p>
     ${metricTiles(rp)}
+    ${maskLine(cm.mask_ai)}
     ${imgs ? `<div class="compare">${imgs}</div>` : ""}
     ${cm.preset ? `<p class="hint">Đã lưu preset: ${esc(cm.preset)}</p>` : ""}
-    ${openBtns(res)}`;
+    ${openBtns(res)}${psBtns(res, "chep")}`;
 }
 function resPc(res) {
   const sc = (res.canh || []).filter((c) => c.ten).slice(0, 8).map((c) => `<span class="pill">Cảnh ${c.so}: ${esc(c.ten)} · ${c.anh} ảnh</span>`).join(" ");
   return `<h2>Xong — ${written(res)}</h2><p class="sub">Mở thư mục bằng Bridge hoặc Camera Raw để xem và chỉnh tiếp.</p>
-    ${sc ? `<p>${sc}</p>` : ""}${openBtns(res)}`;
+    ${sc ? `<p>${sc}</p>` : ""}${openBtns(res)}${psBtns(res, "pc")}`;
 }
 function resHoc(res) {
   const rows = (res.rows || []).map((r) => r.lech
@@ -626,6 +718,92 @@ function resPs(res) {
     ${res.anh ? `<div class="compare"><figure><figcaption>Ảnh do Camera Raw dựng</figcaption><img src="${res.anh}" alt=""></figure></div>` : ""}`;
 }
 
+/* ---------- mở ảnh trong Photoshop để cân lại ---------- */
+async function psOpen(view, k) {
+  const res = S.res[view] || {};
+  const files = k === "rep" ? ((res.chep_mau || {}).tep_dai_dien || []) : (res.tep || []);
+  if (!files.length) { toast("Không có ảnh để mở."); return; }
+  toast("Đang mở Photoshop…");
+  const r = await API.mo_photoshop(files);
+  if (!r.ok) { toast(r.loi, 7000); return; }
+  toast(`Đã gửi ${r.so} ảnh sang Photoshop${r.bo ? ` (mở tối đa 60 ảnh mỗi lần)` : ""} — Camera Raw sẽ hiện ra sau giây lát.`, 7000);
+}
+
+/* ---------- cập nhật ---------- */
+function setBadge(v) { $("#cn-badge").hidden = !v; }
+function cnShow(r) {
+  const out = $("#cn-out");
+  if (r.can_token) {
+    $("#cn-token").hidden = false; $("#cn-token-why").textContent = r.loi;
+    out.innerHTML = `<p class="bad-text">${esc(r.loi)}</p>`; return;
+  }
+  if (r.loi) { out.innerHTML = `<p class="bad-text">${esc(r.loi)}</p>`; return; }
+  if (!r.co_ban_moi) {
+    setBadge(false);
+    out.innerHTML = `<p>Bạn đang dùng bản mới nhất${r.phien_ban ? ` (bản mới nhất trên GitHub: ${esc(r.phien_ban)})` : ""}.</p>`;
+    return;
+  }
+  setBadge(true);
+  out.innerHTML = `<div class="note-line"><b>Có bản mới ${esc(r.phien_ban)}</b> (đang dùng ${esc(r.hien_tai)})
+      ${r.ghi_chu ? `<div class="notes">${esc(r.ghi_chu)}</div>` : ""}
+      <div class="row-btns"><button class="btn primary" data-act="cn-dl">Tải bản mới</button></div>
+      <div id="cn-dl"></div></div>`;
+}
+async function cnCheck(silent) {
+  if (!silent) $("#cn-out").innerHTML = `<p class="stats">Đang hỏi GitHub…</p>`;
+  let r;
+  try { r = await API.kiem_tra_cap_nhat(); } catch (e) { r = { loi: String(e) }; }
+  if (silent) { if (r.co_ban_moi) cnShow(r); return; }
+  cnShow(r);
+}
+async function cnSave(btn) {
+  const tok = $("#cn-token-in").value.trim();
+  if (!tok) { toast("Dán mã truy cập vào ô trước."); return; }
+  btn.disabled = true; $("#cn-out").innerHTML = `<p class="stats">Đang thử mã…</p>`;
+  const r = await API.luu_token(tok);
+  btn.disabled = false;
+  if (!r.can_token && !(r.loi && r.co_ban_moi === undefined)) {
+    $("#cn-token-in").value = ""; $("#cn-token").hidden = true; toast("Đã lưu mã truy cập (chỉ trên máy này).");
+  }
+  cnShow(r);
+}
+async function cnDownload(btn) {
+  const r = await API.tai_ban_moi();
+  if (!r.ok) { toast(r.loi); return; }
+  btn.disabled = true;
+  const box = $("#cn-dl");
+  box.innerHTML = `<div class="run"><div class="stage"><b id="cn-st">Đang tải…</b><span id="cn-mb"></span></div>
+      <div class="bar" id="cn-bar"><i></i></div></div>`;
+  const mb = (n) => (n / 1048576).toFixed(0);
+  const tick = async () => {
+    const st = await API.trang_thai_cap_nhat();
+    const [d, t] = st.tien_do || [0, 0];
+    const stage = $("#cn-st"), size = $("#cn-mb"), bar = $("#cn-bar");
+    if (size) size.textContent = t ? `${mb(d)} / ${mb(t)} MB` : `${mb(d)} MB`;
+    if (bar && t) bar.firstElementChild.style.width = Math.min(100, Math.round(100 * d / t)) + "%";
+    if (stage && t && d >= t) stage.textContent = "Đang giải nén…";
+    if (st.chay) { setTimeout(tick, 500); return; }
+    btn.disabled = false;
+    if (st.loi) { box.innerHTML = `<p class="bad-text">${esc(st.loi)}</p>`; return; }
+    btn.hidden = true;
+    box.innerHTML = `<p>Đã tải xong vào <b>${esc(st.thu_muc)}</b>. Bản cũ vẫn để nguyên — xoá khi không cần nữa.</p>
+      <div class="row-btns"><button class="btn primary" data-act="cn-run">Mở bản mới (đóng bản này)</button>
+      <button class="btn" data-act="open" data-path="${esc(st.thu_muc)}">Mở thư mục bản mới</button></div>`;
+  };
+  tick();
+}
+async function cnRun(btn) {
+  btn.disabled = true;
+  const r = await API.mo_ban_moi();
+  if (!r.ok) { btn.disabled = false; toast(r.loi, 6000); return; }
+  toast("Đang mở bản mới — cửa sổ này sẽ tự đóng.");
+}
+function renderData() {
+  const rows = [["Phong cách đã học", INFO.phong_cach.duong_dan], ["Bản sao lưu phong cách (5 bản gần nhất)", INFO.sao_luu],
+                ["Nhật ký", INFO.nhat_ky], ["Thư mục dữ liệu", INFO.du_lieu]];
+  $("#cn-data").innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td class="path">${esc(v)}</td></tr>`).join("");
+}
+
 /* ---------- khởi động ---------- */
 $("#o-strength").addEventListener("input", (e) => { $("#o-strength-v").textContent = e.target.value + "%"; });
 $("#open-log").addEventListener("click", () => INFO && API.mo(INFO.nhat_ky));
@@ -636,6 +814,8 @@ $("#gpu-retry").addEventListener("click", async () => {
 async function refreshInfo() {
   INFO = await API.info();
   $("#ver").textContent = "Phiên bản " + INFO.phien_ban;
+  $("#cn-cur").textContent = INFO.phien_ban;
+  renderData();
   const pc = INFO.phong_cach;
   $("#chip-style").innerHTML = pc.co
     ? `Phong cách: <b>đã học ${fmtN(pc.n)} ảnh</b><br>${esc((pc.may || []).join(", "))} · ${esc(pc.ngay || "")}`
@@ -654,6 +834,7 @@ async function init() {
   renderJpg(); renderBoxes();
   await refreshInfo();
   window.__editerReady = true;
+  if (INFO.co_token) cnCheck(true);       // có mã thì tự xem có bản mới không (chạy ngầm)
 }
 if (window.pywebview && window.pywebview.api) init();
 else window.addEventListener("pywebviewready", init);

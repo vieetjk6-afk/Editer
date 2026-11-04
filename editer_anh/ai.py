@@ -346,11 +346,11 @@ class Segmenter:
                      "field": L.PLANT, "water": L.WATER, "sea": L.WATER, "river": L.WATER, "lake": L.WATER,
                      "swimming pool": L.WATER, "waterfall": L.WATER, "person": L.PERSON}
         self.scene_codes = np.array([scene_map.get(_norm_name(n), L.OTHER) for n in names.get("canh", [])], np.uint8)
-        skin = {"face", "left-leg", "right-leg", "left-arm", "right-arm"}
+        skin = {"left-leg", "right-leg", "left-arm", "right-arm"}
         people_codes = []
         for n in names.get("nguoi", []):
             n = _norm_name(n)
-            people_codes.append(L.OTHER if n in ("background", "sunglasses") else
+            people_codes.append(L.OTHER if n in ("background", "sunglasses") else L.FACE if n == "face" else
                                 L.SKIN if n in skin else L.HAIR if n == "hair" else L.CLOTHES)
         self.people_codes = np.array(people_codes, np.uint8)
         self.codes = L

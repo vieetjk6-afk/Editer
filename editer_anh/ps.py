@@ -115,6 +115,45 @@ def check() -> tuple[Photoshop | None, str]:
         return None, str(e)
 
 
+def photoshop_exe() -> str | None:
+    """Đường dẫn Photoshop.exe (từ đăng ký của Windows, hoặc hỏi Photoshop đang chạy)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg
+        for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            try:
+                with winreg.OpenKey(root, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Photoshop.exe") as k:
+                    v, _ = winreg.QueryValueEx(k, None)
+                    if v and Path(v).exists():
+                        return str(v)
+            except OSError:
+                continue
+    except ImportError:
+        pass
+    for base in {os.environ.get("ProgramFiles", r"C:\Program Files"), r"C:\Program Files"}:
+        found = sorted(Path(base, "Adobe").glob("Adobe Photoshop*/Photoshop.exe"))
+        if found:
+            return str(found[-1])        # bản mới nhất (tên thư mục có năm: 2024, 2025...)
+    try:
+        p = Path(str(Photoshop().app.Path)) / "Photoshop.exe"
+        return str(p) if p.exists() else None
+    except Exception:
+        return None
+
+
+def open_files(files: list[str], limit: int = 60) -> int:
+    """Mở các ảnh RAW trong Photoshop: Camera Raw hiện ra (nhiều ảnh thì có dải ảnh bên trái)
+    với thông số tool đã ghi — chỉnh tay rồi bấm Done là lưu vào .xmp."""
+    from .ngoai import launch
+    exe = photoshop_exe()
+    if not exe:
+        raise RuntimeError("không tìm thấy Photoshop trên máy")
+    files = [str(f) for f in files][:limit]
+    launch([exe, *files])
+    return len(files)
+
+
 def workdir_for(folder: Path) -> Path:
     return Path(folder) / ".editer-tam"
 

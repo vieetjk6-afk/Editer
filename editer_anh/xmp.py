@@ -204,17 +204,84 @@ def find_sidecar(raw_path: str | Path) -> Path | None:
     return None
 
 
+# Mask AI của Camera Raw — cấu trúc lấy đúng từ preset/XMP do Camera Raw 18 ghi ra
+_MASKS = {
+    "da": [("People - Facial Skin", "3", "2"), ("People - Body Skin", "3", "4")],
+    "nen": [("Background 1", "0", "22")],
+}
+_LOCAL_ZERO = ["LocalExposure", "LocalHue", "LocalContrast", "LocalClarity", "LocalSharpness",
+               "LocalBrightness", "LocalToningHue", "LocalToningSaturation", "LocalContrast2012",
+               "LocalHighlights2012", "LocalShadows2012", "LocalWhites2012", "LocalBlacks2012",
+               "LocalClarity2012", "LocalDehaze", "LocalLuminanceNoise", "LocalMoire", "LocalDefringe",
+               "LocalTexture", "LocalGrain"]
+
+
+def _num(v: float) -> str:
+    t = f"{v:.6f}".rstrip("0").rstrip(".")
+    return "0" if t in ("", "-0") else t
+
+
+def _local_correction(item: dict) -> ET.Element:
+    """Một nhóm chỉnh cục bộ: [Exposure, Temperature, Tint, Saturation] trên mask AI.
+    Camera Raw lưu giá trị cục bộ chia thang: Exposure / 4, các thanh khác / 100."""
+    import uuid
+    kind = "da" if item["ten"].endswith("Da") else "nen"
+    li = ET.Element(RDF + "li")
+    d = ET.SubElement(li, RDF + "Description")
+    attrs = {"What": "Correction", "CorrectionAmount": "1", "CorrectionActive": "true",
+             "CorrectionName": item["ten"], "CorrectionSyncID": uuid.uuid4().hex.upper()}
+    attrs.update({k: "0" for k in _LOCAL_ZERO})
+    attrs.update({"LocalExposure2012": _num(item["ev"] / 4), "LocalTemperature": _num(item["temp"] / 100),
+                  "LocalTint": _num(item["tint"] / 100), "LocalSaturation": _num(item["sat"] / 100),
+                  "LocalCurveRefineSaturation": "100"})
+    for k, v in attrs.items():
+        d.set(CRS + k, v)
+    seq = ET.SubElement(ET.SubElement(d, CRS + "CorrectionMasks"), RDF + "Seq")
+    for name, sub, cat in _MASKS[kind]:
+        ET.SubElement(seq, RDF + "li", {CRS + k: v for k, v in {
+            "What": "Mask/Image", "MaskActive": "true", "MaskName": name, "MaskBlendMode": "0",
+            "MaskInverted": "false", "MaskSyncID": uuid.uuid4().hex.upper(), "MaskValue": "1",
+            "MaskVersion": "1", "MaskSubType": sub, "MaskSubCategoryID": cat,
+            "ReferencePoint": "0.500000 0.500000"}.items()})
+    return li
+
+
+def read_local(path: str | Path) -> dict:
+    """Các chỉnh cục bộ do Editer ghi (tên 'Editer - ...') -> {tên: {ev, temp, tint, sat}}."""
+    out = {}
+    for d in _desc_of(_parse(Path(path))).iter(RDF + "Description"):
+        name = d.attrib.get(CRS + "CorrectionName", "")
+        if not name.startswith("Editer - "):
+            continue
+        v = {k: float(d.attrib.get(CRS + k, "0") or 0)
+             for k in ("LocalExposure2012", "LocalTemperature", "LocalTint", "LocalSaturation")}
+        out[name] = {"ev": v["LocalExposure2012"] * 4, "temp": v["LocalTemperature"] * 100,
+                     "tint": v["LocalTint"] * 100, "sat": v["LocalSaturation"] * 100}
+    return out
+
+
 def build_xmp(template_xml: str | None, values: dict, curve: list[tuple[int, int]] | None = None,
               tool_name: str = "Editer") -> str:
-    """Mẫu + thông số riêng -> nội dung file .xmp hoàn chỉnh."""
+    """Mẫu + thông số riêng (+ chỉnh cục bộ '_local') -> nội dung file .xmp hoàn chỉnh."""
     if template_xml:
         desc = ET.fromstring(template_xml)
     else:
         desc = ET.Element(RDF + "Description", {RDF + "about": ""})
     desc.set(CRS + "HasSettings", "True")
     desc.set(CRS + "AlreadyApplied", "False")
+    values = dict(values)
+    local = values.pop("_local", None)
     for k, v in values.items():
         desc.set(CRS + k, fmt_value(k, v))
+    if local:
+        grp = desc.find("crs:MaskGroupBasedCorrections", NS)
+        if grp is None:
+            grp = ET.SubElement(desc, CRS + "MaskGroupBasedCorrections")
+        seq = grp.find("rdf:Seq", NS)
+        if seq is None:
+            seq = ET.SubElement(grp, RDF + "Seq")
+        for item in local:
+            seq.append(_local_correction(item))
     if curve is not None:
         for c in list(desc):
             if c.tag == CRS + "ToneCurvePV2012":

@@ -25,8 +25,11 @@ from test_look import FAKE, render, scene  # noqa: E402
 
 
 class FakePhotoshopApp:
+    """Camera Raw giả: chỉ áp thông số toàn ảnh, KHÔNG áp mask AI (như khi Camera Raw dựng tự động
+    mà không chạy được AI) -> tool phải tự phát hiện và chỉ chỉnh toàn ảnh."""
+
     def __init__(self):
-        self.calls, self.seen_xmp = 0, []
+        self.calls, self.seen_xmp, self.seen_local = 0, [], []
 
     def DoJavaScript(self, code):
         if code.strip() == "app.version":
@@ -38,6 +41,7 @@ class FakePhotoshopApp:
         assert side.exists(), "tool phải ghi .xmp cạnh bản sao RAW trước khi nhờ Photoshop dựng"
         crs = xmp.read_settings(side)["crs"]
         self.seen_xmp.append(crs)
+        self.seen_local.append(xmp.read_local(side))
         lk, sh = look.from_crs(crs, xmp.read_curve(side))
         ph = raw.load(src)
         cam = Shot(1e6 / ph.as_shot_temp, ph.as_shot_tint, 0.0)
@@ -98,6 +102,9 @@ def test_cli_with_fake_photoshop(tmp: Path):
     assert app.calls >= 2, "Photoshop phải được nhờ dựng ít nhất 2 lượt"
     assert not psmod.workdir_for(folder).exists(), "phải xoá thư mục tạm .editer-tam"
     assert any("KẾT QUẢ ĐO TRÊN CAMERA RAW" in m for m in logs)
+    assert any(app.seen_local), "phải thử mask AI (ghi chỉnh cục bộ vào .xmp dựng thử)"
+    assert any("mask AI" in m and "chỉ chỉnh toàn ảnh" in m for m in logs), logs
+    assert not any(xmp.read_local(o) for o in out), "Camera Raw không áp mask -> không được ghi chỉnh cục bộ"
     crs = xmp.read_settings(out[0])["crs"]
     assert "SplitToningHighlightHue" in crs and crs["ToneCurveName2012"] == "Custom"
     preset = xmp.preset_dir() / "Editer - thử nghiệm.xmp"
