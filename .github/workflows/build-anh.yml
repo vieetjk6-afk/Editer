@@ -51,13 +51,21 @@ jobs:
           dist/editer-anh/editer-anh.exe chinh "$env:RUNNER_TEMP\e2e\moi" --phong-cach "$env:RUNNER_TEMP\pc.editer" --ghi-de --thu
           dist/editer-anh/editer-anh.exe chinh "$env:RUNNER_TEMP\e2e\moi" --mau-jpg "$env:RUNNER_TEMP\e2e\mau.jpg" --ghi-de --thu
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Editer-Anh-Windows
-          path: Editer-Anh-Windows.zip
+      - name: Lấy số phiên bản
+        id: ver
+        run: |
+          $v = python -c "import editer_anh; print(editer_anh.__version__)"
+          "v=$v" >> $env:GITHUB_OUTPUT
 
-      - name: Tạo Release (khi đẩy tag anh-v*)
-        if: startsWith(github.ref, 'refs/tags/anh-v')
+      # Đăng lên Releases (không tốn hạn mức Artifacts của tài khoản).
+      # Cùng số phiên bản thì file được thay bằng bản build mới nhất.
+      - name: Đăng bản .exe lên Releases
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: anh-v${{ steps.ver.outputs.v }}
+          name: Editer Ảnh ${{ steps.ver.outputs.v }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Tải **Editer-Anh-Windows.zip**, giải nén, bấm đúp `editer-anh.exe`.
+            Hướng dẫn: `HUONG-DAN.txt` trong file zip.
           files: Editer-Anh-Windows.zip

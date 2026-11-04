@@ -11,8 +11,8 @@ Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời
 
 ## Editer Ảnh (bản 0.1)
 
-**Tải về:** tab **Actions** → lần chạy mới nhất của "Build Editer Anh (Windows)" →
-mục **Artifacts** → `Editer-Anh-Windows`. Giải nén, bấm đúp `editer-anh.exe`.
+**Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
+Giải nén, bấm đúp `editer-anh.exe`.
 Không cần cài Python. Cách dùng xem `packaging/HUONG-DAN.txt`.
 
 Có 3 chức năng:
