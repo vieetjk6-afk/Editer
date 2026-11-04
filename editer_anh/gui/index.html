@@ -688,13 +688,15 @@ function resChep(res) {
   const ref = S.jpg[0] && S.jpg[0].anh;
   const imgs = (cm.anh_dai_dien || []).slice(0, 3).map((a) => `
       <figure><figcaption>Ảnh mẫu</figcaption>${ref ? `<img src="${ref}" alt="">` : ""}</figure>
-      <figure><figcaption>Gốc · ${esc(a.ten)}</figcaption><img src="${a.goc}" alt=""></figure>
+      <figure><figcaption>${a.nguon === "camera_raw" ? "Gốc (Camera Raw, chưa chỉnh)" : "Gốc"} · ${esc(a.ten)}</figcaption><img src="${a.goc}" alt=""></figure>
       <figure><figcaption>${a.nguon === "camera_raw" ? "Sau — Camera Raw dựng thật" : "Sau — xem trước (mô phỏng)"}</figcaption><img src="${a.ket_qua}" alt=""></figure>`).join("");
   return `<h2>Xong — ${written(res)}</h2>
     <p class="sub">${real ? "Độ lệch màu đo trên ảnh <b>Camera Raw dựng thật</b> so với ảnh mẫu (ΔE: dưới 2 mắt gần như không phân biệt)."
       : "Độ lệch <b>ước lượng</b> (chưa kiểm tra bằng Camera Raw). Bật “Kiểm tra bằng Camera Raw thật” để có số đo thật."}</p>
     ${metricTiles(rp)}
-    ${maskLine(cm.mask_ai)}
+    ${cm.giu_goc ? `<p class="note-line"><b>Giữ ảnh như gốc:</b> tool không tìm được thông số làm ảnh giống mẫu hơn ảnh gốc,
+      nên không đổi màu (chỉ cân đều độ sáng). Ảnh mẫu có thể khác quá xa về ánh sáng / kiểu cảnh — thử ảnh mẫu cùng kiểu cảnh
+      (cùng trong nhà / ngoài trời, cùng giờ chụp).</p>` : maskLine(cm.mask_ai)}
     ${imgs ? `<div class="compare">${imgs}</div>` : ""}
     ${cm.preset ? `<p class="hint">Đã lưu preset: ${esc(cm.preset)}</p>` : ""}
     ${openBtns(res)}${psBtns(res, "chep")}`;

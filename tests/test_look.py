@@ -173,6 +173,26 @@ def test_probe_masks_off():
     print(f"[mask AI không hoạt động] nhận ra; da: {used[0]} {np.round(best[0].skin_loc, 2)}: OK")
 
 
+def test_never_worse_than_original():
+    """Ảnh gốc (Camera Raw, As Shot) đã giống ảnh mẫu -> vòng kiểm tra không được làm tệ đi:
+    không tìm được gì tốt hơn rõ rệt thì GIỮ ẢNH GỐC."""
+    target, reg = scene(17, light_k=5200)
+    base = fake_acr(target, Look(), AS_SHOT, reg)                  # ảnh gốc Camera Raw dựng
+    _, _, ref_sel, ref = stats_of(base, reg, seed=5, ref=True)     # ảnh mẫu = chính ảnh gốc
+    s, idx = look.make_sample(base, reg, seed=0)
+    sel = look.select(s)
+    reps = [look.Rep(s.px, sel, Look(), AS_SHOT, s.reg)]
+    lk0, sh0 = look.solve(reps, ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=False)
+    best, hist, used = look.refine(reps, lambda i, lk, sh: fake_acr(target, lk, sh, reg, masks_work=False),
+                                   lambda im: reg, ref, ref_sel, lk0, sh0, [AS_SHOT], iters=2, log=lambda m: None,
+                                   bases0=[(idx, s, sel)], base_imgs=[base])
+    if best[3].get("_giu_goc"):
+        assert not np.any(best[0].sat) and best[1][0].mired == AS_SHOT.mired, "giữ gốc = không đổi gì"
+    else:
+        assert best[2] <= hist[0][0] + 1e-9
+    print(f"[không tệ hơn gốc] giữ gốc: {bool(best[3].get('_giu_goc'))}, điểm {best[2]:.2f}: OK")
+
+
 def test_keep_red_dress():
     """Ảnh mẫu tông ấm, có mặt người; ảnh đích có áo dài đỏ: áo phải giữ màu đỏ."""
     target, reg = scene(9, light_k=4400, red_dress=True)
@@ -308,6 +328,7 @@ if __name__ == "__main__":
     test_tungsten_needs_cooler_wb()
     test_closed_loop_fixes_wrong_simulator()
     test_probe_masks_off()
+    test_never_worse_than_original()
     test_keep_red_dress()
     test_dark_red_curtain()
     test_orange_reference_whites()

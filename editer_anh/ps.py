@@ -26,6 +26,14 @@ _RENDER_JS = r"""
     try {
         app.displayDialogs = DialogModes.NO;
         d = app.open(new File(%(src)s));
+        var wb = "";
+        try {   // thông số Camera Raw đã dùng (As Shot thật của máy khi WhiteBalance = As Shot)
+            var x = d.xmpMetadata.rawData;
+            var t = x.match(/crs:Temperature(?:="|>)\s*([-+]?[0-9.]+)/);
+            var n = x.match(/crs:Tint(?:="|>)\s*([-+]?[0-9.]+)/);
+            var wm = x.match(/crs:WhiteBalance(?:="|>)\s*([^"<]+)/);
+            if (t && n) wb = t[1] + "|" + n[1] + "|" + (wm ? wm[1] : "");
+        } catch (ex) {}
         try { d.flatten(); } catch (e0) {}
         if (d.mode != DocumentMode.RGB) d.changeMode(ChangeMode.RGB);
         d.convertProfile("sRGB IEC61966-2.1", Intent.RELATIVECOLORIMETRIC, true, false);
@@ -35,7 +43,7 @@ _RENDER_JS = r"""
                                  72, ResampleMethod.BICUBIC);
         d.saveAs(new File(%(dst)s), new PNGSaveOptions(), true, Extension.LOWERCASE);
         d.close(SaveOptions.DONOTSAVECHANGES);
-        return "ok";
+        return "ok|" + wb;
     } catch (e) {
         try { if (d) d.close(SaveOptions.DONOTSAVECHANGES); } catch (e2) {}
         return "loi: " + e;
@@ -89,10 +97,19 @@ class Photoshop:
     def version(self) -> str:
         return self.js("app.version")
 
+    last_wb: tuple | None = None        # (Nhiệt độ, Tint, chế độ) Camera Raw đã dùng ở lần dựng gần nhất
+
     def render_file(self, src: Path, dst: Path, size: int = 1024) -> None:
         r = self.js(_RENDER_JS % {"src": _js_path(src), "dst": _js_path(dst), "size": size})
         if not r.startswith("ok"):
             raise RuntimeError(f"Photoshop không dựng được {Path(src).name}: {r}")
+        self.last_wb = None
+        parts = r.split("|")
+        if len(parts) >= 3:
+            try:
+                self.last_wb = (float(parts[1]), float(parts[2]), parts[3] if len(parts) > 3 else "")
+            except ValueError:
+                pass
 
     def render_raw(self, raw_path: Path, xmp_content: str, workdir: Path, size: int = 1024) -> np.ndarray:
         """Dựng file RAW với nội dung .xmp cho trước -> ảnh sRGB uint8 (không đụng .xmp gốc)."""

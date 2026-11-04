@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.6)
+## Editer Ảnh (bản 0.7)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
@@ -49,6 +49,15 @@ Có 3 chức năng:
      chroma 12 — trước đây ảnh mẫu nhiều gỗ cam cho "trắng" a*=+21, b*=+35); ám màu vùng
      tối/sáng chỉ đo trên điểm xám thật (không lẫn rèm đỏ/áo màu), bỏ vùng < 3% ảnh. Màu
      áo được **giữ như ảnh gốc** (so với gốc, không so với ảnh mẫu).
+   - **0.7 — As Shot cho máy mới:** LibRaw (0.22) chưa có ma trận màu của Nikon Z5_2, Sony ILCE-7M5...
+     -> trước đây As Shot = None và tool không chỉnh WB. `editer_anh/wb.py`: đọc ColorMatrix1/2 từ
+     .dcp của Camera Raw (ProgramData/AppData\Adobe\CameraRaw\CameraProfiles), tính As Shot như
+     DNG SDK (nội suy 2 nguồn sáng theo 1/T); không có .dcp thì dùng ma trận dự phòng (LibRaw bản mới /
+     máy cùng cảm biến). Khi có Photoshop: đọc crs:Temperature/Tint từ XMP của ảnh vừa mở (As Shot thật)
+     và bù độ lệch cho cả lô. Học phong cách tự đọc lại ảnh thiếu WB.
+   - **0.7 — chép màu từ ảnh gốc Camera Raw:** dựng As Shot + look trống bằng Camera Raw cho ảnh đại
+     diện, dùng làm gốc mô phỏng và điểm đo của vòng kiểm tra (thay JPEG nhúng của máy); kết quả không
+     tốt hơn gốc ≥ 5% thì giữ gốc.
    - **0.6 — không làm xỉn màu ngoài vùng có bằng chứng:** HSL chỉ chỉnh dải có ở cả ảnh mẫu lẫn
      ảnh RAW (da → đỏ/cam/vàng, cây → vàng/xanh lá/xanh ngọc, trời → xanh ngọc/xanh dương, áo →
      dải của áo); Saturation/Vibrance chung bị phạt gấp đôi. Tông: điểm đen P2 / giữa P50 / điểm
@@ -96,7 +105,7 @@ Giới hạn hiện tại:
 - Bản ≤ 0.2 ghi Color Grading bằng khoá Camera Raw không hiểu (`ColorGradeShadowHue`),
   nên phần đó không có tác dụng. Đã sửa ở bản 0.3 (`SplitToning...`).
 
-Chạy test: `python tests/test_look.py`, `python tests/test_ps.py`, `python tests/test_gui_api.py`, `python tests/test_capnhat.py`,
+Chạy test: `python tests/test_look.py`, `python tests/test_ps.py`, `python tests/test_gui_api.py`, `python tests/test_capnhat.py`, `python tests/test_wb.py`,
 `python tests/test_e2e.py <thư mục tạm>`. Test có AI cần mô hình: `python packaging/get_model.py models`
 (cần mạng), hoặc mô hình giả `python tests/make_dummy_model.py <thư mục>` + `EDITER_MODELS=<thư mục>`.
 

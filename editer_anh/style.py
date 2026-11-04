@@ -97,11 +97,15 @@ def learn(folders: list[str | Path], log=print, workers: int = 8, previous: dict
     if not pairs and not old:
         raise SystemExit("Không thấy cặp ảnh RAW + .xmp nào trong các thư mục đã chọn.")
     keyed = [(_row_key(rp, sp), rp, sp) for rp, sp in pairs]
+    # đọc lại: ảnh mới / .xmp vừa sửa / ảnh trước đây chưa đọc được cân bằng trắng gốc (máy mới)
     need = [(k, rp, sp) for k, rp, sp in keyed
-            if k not in old or (emb_model is not None and old[k].get("emb") is None)]
+            if k not in old or (emb_model is not None and old[k].get("emb") is None)
+            or ("d_mired" not in old[k]["targets"] and "Temperature" in old[k]["crs"])]
     log(f"Tìm thấy {len(pairs)} ảnh đã chỉnh; {len(need)} ảnh mới/đã sửa cần đọc"
         + (f", {len(old)} ảnh đã học từ trước." if old else "."))
     photos = load_many([rp for _, rp, _ in need], workers, log) if need else []
+    for line in raw.wb_summary(photos):
+        log(line)
     fresh = []
     for (k, rp, sp), ph in zip(need, photos):
         if ph.error:

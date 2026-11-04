@@ -821,6 +821,34 @@ def transfer(rep_shot: Shot, app_r, app_j, cam_r: Shot, cam_j: Shot, y_r: float,
     return Shot(float(np.clip(m, 20, 500)), float(np.clip(t, -150, 150)), ev)
 
 
+def _calibrate_as_shot(photos, reps: list[int], cams: list[Shot], acr: dict, log) -> list[Shot]:
+    """Camera Raw cho biết As Shot THẬT của ảnh đại diện (đọc từ ảnh vừa dựng): dùng đúng số đó;
+    As Shot tool tự tính cho các ảnh khác cùng đời máy được bù theo độ lệch trung vị."""
+    if not acr:
+        return cams
+    cams, offs, exact = list(cams), {}, set()
+    for j, i in enumerate(reps):
+        if j not in acr:
+            continue
+        t, tint = acr[j]
+        if not (1500 < t < 50000):
+            continue
+        c = cams[i]
+        if c.mired is not None:
+            offs.setdefault(photos[i].model, []).append((1e6 / t - c.mired, tint - (c.tint or 0.0)))
+        cams[i] = Shot(1e6 / t, float(tint), 0.0)
+        exact.add(i)
+    for model, ds in offs.items():
+        dm = float(np.median([d[0] for d in ds]))
+        dt = float(np.median([d[1] for d in ds]))
+        log(f"  As Shot theo Camera Raw ({model}): tool tính lệch {dm:+.1f} mired / tint {dt:+.1f}"
+            + (" -> đã bù cho cả lô" if abs(dm) > 1 or abs(dt) > 1 else " (khớp)"))
+        for i, p in enumerate(photos):
+            if i not in exact and p.model == model and cams[i].mired is not None:
+                cams[i] = Shot(cams[i].mired + dm, (cams[i].tint or 0.0) + dt, 0.0)
+    return cams
+
+
 def pick_reps(times: list[float], scenes: list[int], embs: np.ndarray | None, clip_hi: list[float],
               max_reps: int, force: list[int] = ()) -> tuple[list[int], list[int]]:
     """Mỗi cảnh lớn chọn 1 ảnh đại diện (gần 'trung bình' cảnh nhất, không cháy sáng).
@@ -907,7 +935,8 @@ def learn_gains(reps: list[Rep], keys, ref, ref_sel, ident, gidx, tmpl, tried, k
 
 def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Look, shots0: list[Shot],
            priors: list[Shot], iters: int = 3, log=print, k: Consts = DEFAULT, tol: float = 0.8,
-           reg_schedule=(0.6, 0.3, 0.15), probe_local: bool = True):
+           reg_schedule=(0.6, 0.3, 0.15), probe_local: bool = True, bases0: list | None = None,
+           base_imgs: list | None = None):
     """VÒNG KIỂM TRA: Camera Raw (render) dựng ảnh -> đo -> sửa -> dựng lại.
 
     reps: các ảnh đại diện ở dạng ảnh xem trước (gốc của mô phỏng).
@@ -923,15 +952,24 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
     probe_local: sau lượt đầu, dựng thử 1 lần để xem Camera Raw có ÁP mask da/nền không;
     vùng nào không áp thì tắt chỉnh cục bộ vùng đó (không đoán mò).
     render(i, look, shot) -> ảnh uint8; segment(ảnh) -> bản đồ vùng (hoặc None).
+    bases0/base_imgs: điểm đo + ảnh GỐC do Camera Raw dựng (As Shot, chưa chỉnh). Có thì đo trên
+    đúng các điểm đó, và nếu không tìm được gì tốt hơn ảnh gốc thì GIỮ ẢNH GỐC (không làm tệ đi).
     Trả về (look, shots, điểm lệch, báo cáo, ảnh dựng) tốt nhất + lịch sử + (dùng mask da, nền)."""
     n = len(reps)
     tmpl = [replace(s) for s in shots0]
     x_try = _pack(look0, shots0)
-    bases, history, keys = [], [], None
+    bases, history, keys = list(bases0 or []), [], None
     best, mu = None, 0.6
     gidx, gains, seen = _group_index(tmpl), np.ones(len(GROUPS)), []
     keeps = [r.keep for r in reps]
     use_local, probed = (False, False), False
+    base_score, base_rp = None, None
+    if base_imgs is not None and len(bases) == n:
+        act0 = [measure(sample_at(img, idx, s0).px, sel) for img, (idx, s0, sel) in zip(base_imgs, bases)]
+        base_score = float(np.sqrt(np.mean(np.concatenate(
+            [diff(m, ref, b[2], ref_sel, kp) for m, b, kp in zip(act0, bases, keeps)]) ** 2)))
+        base_rp = report(act0, ref, keeps)
+        log(f"    ảnh gốc (Camera Raw, chưa chỉnh): {fmt_report(base_rp)}")
 
     for it in range(iters + 1):
         lk_t, sh_t = _unpack(x_try, tmpl)
@@ -985,6 +1023,11 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
                            prox=(best["x"], mu), gmap=(ident, G), use_local=use_local)
         x_try = _pack(lk_p, sh_p)
     lk_b, sh_b = _unpack(best["x"], tmpl)
+    if base_score is not None and best["score"] > 0.95 * base_score:
+        log("    Không tìm được thông số làm ảnh giống mẫu hơn ẢNH GỐC -> giữ ảnh như gốc (As Shot, không đổi màu).")
+        rp = dict(base_rp)
+        rp["_giu_goc"] = True
+        return (Look(), [replace(p) for p in priors], base_score, rp, list(base_imgs)), history, (False, False)
     if not use_local[0]:
         lk_b.skin_loc = np.zeros(4)
     if not use_local[1]:
@@ -994,7 +1037,9 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
         log("      da còn lệch quá xa (có thể AI nhận nhầm da) -> không tự thêm mask da, nên cân lại bằng tay")
     elif probed and not use_local[0]:
         fix = _skin_residual(bases, best["imgs"], lk_b, sh_b, ref, ref_sel, keeps, k)
-        if fix is not None and np.any(np.abs(fix) > [0.03, 1.0, 1.0, 1.0]):
+        if fix is not None and int(np.sum(np.abs(fix) >= np.array([0.6, 25, 25, 30]) - 1e-6)) >= 2:
+            log("      phần da còn lệch quá lớn để tự sửa bằng mask (chạm giới hạn) -> không tự thêm mask da")
+        elif fix is not None and np.any(np.abs(fix) > [0.03, 1.0, 1.0, 1.0]):
             lk_b.skin_loc = fix
             state[0] = "mo_phong"
             log(f"      chỉnh riêng da theo mô phỏng (chưa đo được trên Camera Raw): Exposure {fix[0]:+.2f}, "
@@ -1116,13 +1161,26 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
         regmaps[i] = segment(photos[i].preview) if segment else None
     cams = [Shot(1e6 / p.as_shot_temp if p.as_shot_temp else None,
                  p.as_shot_tint if p.as_shot_temp else None, 0.0) for p in photos]
-    rep_objs = []
+    render = render_factory([photos[i] for i in reps]) if render_factory is not None else None
+    base_imgs = None
+    if render is not None:
+        # Điểm xuất phát THẬT: Camera Raw dựng ảnh gốc (As Shot, chưa chỉnh). Ảnh xem trước nhúng
+        # trong RAW là JPEG của máy (màu khác Camera Raw) -> không dùng làm gốc khi đã có Photoshop.
+        log("Dựng ảnh gốc bằng Camera Raw (As Shot, chưa chỉnh) để làm điểm xuất phát...")
+        base_imgs = [render(j, Look(), Shot(None, None, 0.0)) for j in range(len(reps))]
+        cams = _calibrate_as_shot(photos, reps, cams, getattr(render, "as_shot", None) or {}, log)
+    rep_objs, bases0 = [], []
     for j, i in enumerate(reps):
-        s, _ = make_sample(photos[i].preview, regmaps.get(i), seed=j)
+        if base_imgs is not None:
+            src = base_imgs[j]
+            s, idx = make_sample(src, segment(src) if segment else None, seed=j)
+        else:
+            s, idx = make_sample(photos[i].preview, regmaps.get(i), seed=j)
         sel = select(s)
         m0 = measure(s.px, sel)
         keep = {key: m0[key] for key in KEEP_KEYS if key in m0}     # màu áo gốc: phải giữ
         rep_objs.append(Rep(s.px, sel, Look(), cams[i], s.reg, keep or None))
+        bases0.append((idx, s, sel))
         found = rep_objs[-1].sel.found()
         log(f"  ảnh đại diện {j + 1}: {Path(photos[i].path).name}"
             + (f" (thấy: {', '.join(found)})" if found else ""))
@@ -1135,14 +1193,16 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
     pred = [measure(simulate(r.px, r.cur_look, r.cur_shot, lk, s, reg=r.reg), r.sel) for r, s in zip(rep_objs, shots)]
     info["mo_phong"] = report(pred, ref.stats, keeps)
     log(f"  trên mô phỏng: {fmt_report(info['mo_phong'])}")
-    if render_factory is not None:
+    if render is not None:
         log(f"Kiểm tra bằng Camera Raw thật ({len(reps)} ảnh x tối đa {iters + 1} lượt):")
-        best, hist, used = refine(rep_objs, render_factory([photos[i] for i in reps]), segment,
-                                  ref.stats, ref.sel, lk, shots, priors, iters=iters, log=log)
+        best, hist, used = refine(rep_objs, render, segment, ref.stats, ref.sel, lk, shots, priors,
+                                  iters=iters, log=log, bases0=bases0, base_imgs=base_imgs)
         lk, shots = best[0], best[1]
-        info["camera_raw"], info["lich_su"], info["mask_ai"] = best[3], hist, {"da": used[0], "nen": used[1]}
-        info["anh_dai_dien"] = [{"ten": Path(photos[i].path).name, "goc": photos[i].preview, "ket_qua": img,
-                                 "nguon": "camera_raw"} for i, img in zip(reps, best[4])]
+        rp = dict(best[3])
+        info["giu_goc"] = bool(rp.pop("_giu_goc", False))
+        info["camera_raw"], info["lich_su"], info["mask_ai"] = rp, hist, {"da": used[0], "nen": used[1]}
+        info["anh_dai_dien"] = [{"ten": Path(photos[i].path).name, "goc": base_imgs[j], "ket_qua": img,
+                                 "nguon": "camera_raw"} for j, (i, img) in enumerate(zip(reps, best[4]))]
     else:   # xem trước bằng mô phỏng (gần đúng)
         info["anh_dai_dien"] = []
         for j, i in enumerate(reps):

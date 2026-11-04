@@ -5,6 +5,19 @@ Bấm đúp  "Editer Anh.exe"  -> cửa sổ giao diện (bấm nút, kéo thả
 Bên trái có 5 mục: Chép màu từ ảnh mẫu · Chỉnh theo phong cách · Học phong cách · Kiểm tra Photoshop
 · Cập nhật. Kết quả hiện ngay trong cửa sổ: độ lệch màu (ΔE) từng vùng + ảnh mẫu / gốc / sau.
 
+MỚI Ở BẢN 0.7 — SỬA LỖI LỚN VỀ CÂN BẰNG TRẮNG (máy mới: Nikon Z5 II, Sony đời mới...)
+ - Trước bản 0.7, với máy mới, tool KHÔNG đọc được nhiệt độ màu gốc (As Shot) nên KHÔNG chỉnh được
+   cân bằng trắng (cột "K tint" trống trong kết quả) — cả khi chép màu lẫn khi học phong cách. Đây
+   là lý do chính khiến ảnh bị ám xanh/xỉn. Nguyên nhân: thư viện đọc RAW chưa có bảng màu của máy.
+ - Giờ tool đọc bảng màu từ HỒ SƠ MÀU CỦA CHÍNH CAMERA RAW trên máy bạn (file .dcp của Adobe) nên
+   tính As Shot y như Camera Raw; không có thì dùng bảng màu dự phòng. Có Photoshop thì tool còn đọc
+   thẳng As Shot từ Camera Raw để bù. Nhật ký ghi: "Cân bằng trắng gốc (As Shot) của <máy>: ...".
+ - CẦN HỌC LẠI PHONG CÁCH: vào "Học phong cách", chọn lại các thư mục job cũ, bấm Bắt đầu học — tool
+   tự đọc lại những ảnh trước đây thiếu cân bằng trắng (không cần "học lại từ đầu").
+ - Chép màu (có Photoshop): Camera Raw dựng ẢNH GỐC (As Shot, chưa chỉnh) làm điểm xuất phát — không
+   dùng ảnh JPEG nhúng của máy nữa (màu khác Camera Raw). Nếu không tìm được thông số làm ảnh giống
+   mẫu hơn ảnh gốc thì GIỮ NGUYÊN ảnh gốc (không bao giờ làm ảnh tệ đi).
+
 MỚI Ở BẢN 0.6 (sửa lỗi "ảnh xỉn màu, da lệch" khi thử ảnh áo dài đỏ + tường hoa)
  - KHÔNG làm xỉn những màu ảnh mẫu không có: ảnh mẫu toàn đỏ/nâu (rèm, áo dài) thì tool không
    đụng vào hoa hồng/tím, lá xanh của ảnh RAW. Chỉ chỉnh dải màu có ở CẢ HAI ảnh: da (đỏ/cam/vàng),

@@ -133,6 +133,8 @@ def cmd_chinh(a) -> dict:
         if p.error or p.preview is None:
             _log(f"  lỗi {r.name}: {p.error or 'không có ảnh xem trước'}")
     raws, photos = [r for r, _ in ok], [p for _, p in ok]
+    for line in raw.wb_summary(photos):
+        _log(line)
     from . import ai
     emb_model = None if a.khong_ai else ai.Embedder.get()
     if m and m.get("ai") and emb_model is None:
@@ -220,6 +222,7 @@ def _blend(lk: look.Look, shots: list, cams: list, s: float):
     base = look.Look()
     mix = look.Look(base.curve + s * (lk.curve - base.curve), s * lk.hue, s * lk.sat, s * lk.lum,
                     s * lk.grade, s * lk.saturation, s * lk.vibrance)
+    mix.skin_loc, mix.bg_loc = s * lk.skin_loc, s * lk.bg_loc
     out = []
     for sh, c in zip(shots, cams):
         m = None if (sh.mired is None or c.mired is None) else c.mired + s * (sh.mired - c.mired)
@@ -261,7 +264,15 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
         def factory(rep_photos):
             def render(i, lk, shot):
                 vals, crv, tpl = _compose_jpg(m, rep_photos[i], lk, shot, a.khong_mask)
-                return ps_obj.render_raw(Path(rep_photos[i].path), xmp.build_xmp(tpl, vals, crv), work, a.co_anh)
+                img = ps_obj.render_raw(Path(rep_photos[i].path), xmp.build_xmp(tpl, vals, crv), work, a.co_anh)
+                if shot.mired is None and ps_obj.last_wb:      # As Shot -> Camera Raw cho biết số thật
+                    render.as_shot[i] = ps_obj.last_wb[:2]
+                    nhatky.note(f"As Shot theo Camera Raw {Path(rep_photos[i].path).name}: "
+                                f"{ps_obj.last_wb[0]:.0f}K tint {ps_obj.last_wb[1]:+.0f} | tool tính: "
+                                f"{rep_photos[i].as_shot_temp and round(rep_photos[i].as_shot_temp)}K "
+                                f"({rep_photos[i].wb_src})")
+                return img
+            render.as_shot = {}
             return render
     n_reps = a.so_anh_dai_dien or (4 if ps_obj else 6)
     try:
@@ -274,7 +285,7 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
     gui_info = {"mo_phong": info.get("mo_phong"), "camera_raw": info.get("camera_raw"),
                 "ref_found": found, "photoshop": ps_obj is not None,
                 "anh_dai_dien": info.get("anh_dai_dien", []), "preset": None,
-                "mask_ai": info.get("mask_ai"),
+                "mask_ai": info.get("mask_ai"), "giu_goc": info.get("giu_goc", False),
                 "tep_dai_dien": [photos[i].path for i in info.get("reps", [])]}
     if info.get("mask_ai"):
         mk = info["mask_ai"]

@@ -44,7 +44,9 @@ class FakePhotoshopApp:
         self.seen_local.append(xmp.read_local(side))
         lk, sh = look.from_crs(crs, xmp.read_curve(side))
         ph = raw.load(src)
-        cam = Shot(1e6 / ph.as_shot_temp, ph.as_shot_tint, 0.0)
+        # As Shot "thật" của Camera Raw giả hơi khác số tool tự tính (như máy mới chưa có trong LibRaw)
+        cam = Shot(1e6 / (ph.as_shot_temp * 1.04), ph.as_shot_tint + 3, 0.0)
+        mode = crs.get("WhiteBalance", "As Shot")
         if sh.mired is None:
             sh = Shot(cam.mired, cam.tint, sh.ev)
         base = render(ph.preview, Look(curve=np.array([0.0, 40, 92, 166, 216, 255]), sat=np.full(8, 12.0)),
@@ -54,7 +56,7 @@ class FakePhotoshopApp:
         im.thumbnail((size, size))
         im.save(dst)
         self.calls += 1
-        return "ok"
+        return f"ok|{1e6 / sh.mired:.0f}|{sh.tint:+.0f}|{mode}"     # như Camera Raw ghi trong XMP của ảnh
 
 
 def test_render_raw_cleans_up(tmp: Path):
@@ -102,6 +104,9 @@ def test_cli_with_fake_photoshop(tmp: Path):
     assert app.calls >= 2, "Photoshop phải được nhờ dựng ít nhất 2 lượt"
     assert not psmod.workdir_for(folder).exists(), "phải xoá thư mục tạm .editer-tam"
     assert any("KẾT QUẢ ĐO TRÊN CAMERA RAW" in m for m in logs)
+    assert any("ảnh gốc (Camera Raw, chưa chỉnh)" in m for m in logs), "phải đo ảnh gốc As Shot trước"
+    assert any("As Shot theo Camera Raw" in m and "đã bù" in m for m in logs), \
+        "As Shot thật của Camera Raw khác số tool tính -> phải bù cho cả lô"
     assert any(app.seen_local), "phải thử mask AI (ghi chỉnh cục bộ vào .xmp dựng thử)"
     mlog = [m for m in logs if m.startswith("Chỉnh riêng từng phần bằng mask AI")]
     assert mlog and "nền không" in mlog[0], logs

@@ -29,6 +29,7 @@ PREVIEW_SIDE = 384
 class Photo:
     path: str
     model: str | None = None
+    make: str | None = None
     time: float | None = None          # giây kể từ 1970 (giờ chụp)
     iso: float | None = None
     shutter: float | None = None        # giây
@@ -40,6 +41,8 @@ class Photo:
     preview: np.ndarray | None = field(default=None, repr=False)  # uint8 HxWx3 sRGB (CHƯA xoay)
     error: str | None = None
     flip: int = 0                       # số lần xoay 90° ngược chiều kim đồng hồ để ảnh đứng thẳng
+    wb_mult: tuple | None = None        # hệ số cân bằng trắng của máy (R, G, B) ghi trong file RAW
+    wb_src: str | None = None           # As Shot tính bằng gì: libraw / hồ sơ màu Adobe / ma trận dự phòng
 
     def upright(self) -> np.ndarray | None:
         """Ảnh xem trước xoay đúng chiều (ảnh dọc đứng thẳng) — để AI nhận người đúng và hiển thị.
@@ -67,6 +70,14 @@ def load_image(path: str | Path, side: int = PREVIEW_SIDE) -> np.ndarray:
         if im.format == "JPEG":
             im.draft("RGB", (side * 2, side * 2))
         return _to_small(im, side)
+
+
+def _wb_mult(raw) -> tuple | None:
+    try:
+        wb = [float(v) for v in raw.camera_whitebalance[:3]]
+        return tuple(wb) if all(v > 0 for v in wb) else None
+    except Exception:
+        return None
 
 
 def _as_shot(raw) -> tuple[float | None, float | None]:
@@ -117,6 +128,8 @@ def _exif(path: Path, ph: Photo) -> None:
     g = tags.get
     if g("Image Model"):
         ph.model = str(g("Image Model")).strip()
+    if g("Image Make"):
+        ph.make = str(g("Image Make")).strip()
     ph.iso = _ratio(g("EXIF ISOSpeedRatings")) or ph.iso
     ph.shutter = _ratio(g("EXIF ExposureTime")) or ph.shutter
     ph.fnumber = _ratio(g("EXIF FNumber")) or ph.fnumber
@@ -145,6 +158,8 @@ def load(path: str | Path, side: int = PREVIEW_SIDE) -> Photo:
     try:
         with rawpy.imread(str(path)) as raw:
             ph.as_shot_temp, ph.as_shot_tint = _as_shot(raw)
+            ph.wb_mult = _wb_mult(raw)
+            ph.wb_src = "libraw" if ph.as_shot_temp else None
             try:   # chiều chụp (máy dựng dọc): LibRaw flip 3 = 180°, 5 = xoay trái 90°, 6 = xoay phải 90°
                 ph.flip = {3: 2, 5: 1, 6: -1}.get(int(raw.sizes.flip), 0)
             except Exception:
@@ -178,9 +193,35 @@ def load(path: str | Path, side: int = PREVIEW_SIDE) -> Photo:
         ph.error = f"không đọc được RAW: {e}"
         return ph
     _exif(path, ph)
+    if ph.as_shot_temp is None and ph.wb_mult is not None:
+        # LibRaw chưa có ma trận màu cho máy này (máy mới) -> hồ sơ màu Adobe / ma trận dự phòng
+        from . import wb
+        try:
+            r = wb.estimate(ph.make, ph.model, ph.wb_mult)
+        except Exception as e:
+            r = None
+            nhatky.note(f"  không tính được As Shot cho {path.name}: {e}")
+        if r:
+            ph.as_shot_temp, ph.as_shot_tint, ph.wb_src = r
     if ph.time is None:
         ph.time = os.path.getmtime(path)
     return ph
+
+
+def wb_summary(photos: list[Photo]) -> list[str]:
+    """Dòng báo cách đọc cân bằng trắng gốc (As Shot) theo từng đời máy."""
+    out, seen = [], set()
+    for p in photos:
+        key = (p.model, p.wb_src)
+        if p.error or key in seen or p.wb_src == "libraw":
+            continue
+        seen.add(key)
+        if p.wb_src:
+            out.append(f"Cân bằng trắng gốc (As Shot) của {p.model}: tính theo {p.wb_src}.")
+        else:
+            out.append(f"KHÔNG đọc được cân bằng trắng gốc của {p.model or '?'} (máy quá mới) -> "
+                       "tool sẽ không chỉnh nhiệt độ màu cho máy này.")
+    return out
 
 
 def features(ph: Photo) -> dict:
