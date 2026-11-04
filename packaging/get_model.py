@@ -139,11 +139,12 @@ def _sanity_seg(out: Path) -> None:
     from editer_anh.ai import Segmenter
     seg = Segmenter(out)
     print(f"phân vùng: {seg.device}, {seg.sec * 1000:.0f} ms/ảnh", flush=True)
-    for name, img, code, need in (("astronaut", d.astronaut(), L.SKIN, 0.01), ("rocket", d.rocket(), L.SKY, 0.10)):
+    # da = mặt + tay/chân (bản 0.5 tách riêng "mặt")
+    for name, img, codes, need in (("astronaut", d.astronaut(), L.SKIN_SET, 0.01), ("rocket", d.rocket(), (L.SKY,), 0.10)):
         m = seg.segment(img)
         frac = {L.REGION_VI.get(c, "khác"): round(float(np.mean(m == c)), 3) for c in np.unique(m)}
         print(f"  {name}: {frac}", flush=True)
-        assert np.mean(m == code) >= need, f"phân vùng lỗi ở ảnh {name}"
+        assert np.mean(np.isin(m, codes)) >= need, f"phân vùng lỗi ở ảnh {name}"
     print("kiểm tra phân vùng: OK", flush=True)
 
 
