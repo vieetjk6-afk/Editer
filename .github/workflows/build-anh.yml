@@ -39,13 +39,17 @@ jobs:
 
       - name: Đóng gói .exe
         run: |
-          pyinstaller --noconfirm --onedir --console --name editer-anh `
+          pyinstaller --noconfirm --onedir --console --name editer-anh --paths . `
             --collect-all sklearn --collect-all rawpy packaging/run.py
           Copy-Item packaging/HUONG-DAN.txt dist/editer-anh/
           Compress-Archive -Path dist/editer-anh -DestinationPath Editer-Anh-Windows.zip
 
-      - name: Thử bản .exe
-        run: dist/editer-anh/editer-anh.exe --version
+      - name: Thử bản .exe (học + chỉnh thật trên ảnh giả lập)
+        run: |
+          dist/editer-anh/editer-anh.exe --version
+          dist/editer-anh/editer-anh.exe hoc "$env:RUNNER_TEMP\e2e\job" -o "$env:RUNNER_TEMP\pc.editer"
+          dist/editer-anh/editer-anh.exe chinh "$env:RUNNER_TEMP\e2e\moi" --phong-cach "$env:RUNNER_TEMP\pc.editer" --ghi-de --thu
+          dist/editer-anh/editer-anh.exe chinh "$env:RUNNER_TEMP\e2e\moi" --mau-jpg "$env:RUNNER_TEMP\e2e\mau.jpg" --ghi-de --thu
 
       - uses: actions/upload-artifact@v4
         with:
