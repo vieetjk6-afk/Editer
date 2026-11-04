@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.7)
+## Editer Ảnh (bản 0.8)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
@@ -49,6 +49,12 @@ Có 3 chức năng:
      chroma 12 — trước đây ảnh mẫu nhiều gỗ cam cho "trắng" a*=+21, b*=+35); ám màu vùng
      tối/sáng chỉ đo trên điểm xám thật (không lẫn rèm đỏ/áo màu), bỏ vùng < 3% ảnh. Màu
      áo được **giữ như ảnh gốc** (so với gốc, không so với ảnh mẫu).
+   - **0.8 — ảnh mẫu theo cảnh:** mỗi ảnh đại diện có mục tiêu riêng = trung bình số đo của các ảnh
+     mẫu giống cảnh nhất (CLIP, trọng số exp((sim - max)/0,03), bỏ < 0,2); số đo thiếu lấy theo cả bộ
+     (`look.scene_target`, `Rep.target`). Giống ý "ảnh tham chiếu gần nhất" của Imagen/Deep Preset.
+   - **0.8 — khớp từng điểm ảnh:** ảnh mẫu là bản đã chỉnh của chính 1 ảnh RAW (CLIP > 0,93 và tương
+     quan đường nét cùng khung > 0,8, `look.same_frame`) -> lấy Lab ảnh mẫu tại ~700 điểm đo làm mục
+     tiêu ("pix"), bỏ ràng buộc giữ màu áo cho ảnh đó.
    - **0.7 — As Shot cho máy mới:** LibRaw (0.22) chưa có ma trận màu của Nikon Z5_2, Sony ILCE-7M5...
      -> trước đây As Shot = None và tool không chỉnh WB. `editer_anh/wb.py`: đọc ColorMatrix1/2 từ
      .dcp của Camera Raw (ProgramData/AppData\Adobe\CameraRaw\CameraProfiles), tính As Shot như

@@ -5,6 +5,15 @@ Bấm đúp  "Editer Anh.exe"  -> cửa sổ giao diện (bấm nút, kéo thả
 Bên trái có 5 mục: Chép màu từ ảnh mẫu · Chỉnh theo phong cách · Học phong cách · Kiểm tra Photoshop
 · Cập nhật. Kết quả hiện ngay trong cửa sổ: độ lệch màu (ΔE) từng vùng + ảnh mẫu / gốc / sau.
 
+MỚI Ở BẢN 0.8 — CHÉP MÀU TỪ ẢNH MẪU CHÍNH XÁC HƠN
+ - NHIỀU ẢNH MẪU KHÁC CẢNH: mỗi ảnh RAW tự theo ảnh mẫu GIỐNG CẢNH NHẤT (AI so nội dung ảnh) —
+   ảnh trong nhà theo mẫu trong nhà, ngoài trời theo mẫu ngoài trời — thay vì trộn tất cả ảnh mẫu
+   thành một màu trung bình (trung bình thì ảnh nào cũng lệch). Nhật ký ghi "<- theo ảnh mẫu giống
+   cảnh nhất: ...", khung so sánh hiện đúng ảnh mẫu được dùng. Cứ thả 5-10 ảnh mẫu đủ các cảnh.
+ - ẢNH MẪU LÀ BẢN ĐÃ CHỈNH CỦA CHÍNH 1 ẢNH RAW (vd ảnh khách chọn, ảnh bạn đã xuất): tool nhận ra
+   (AI + so đường nét, cùng khung) và KHỚP TỪNG ĐIỂM ẢNH -> gần như y hệt; thẻ "Từng điểm ảnh".
+   Mẹo hay nhất: chỉnh tay 1 ảnh mỗi cảnh, xuất JPG, dùng làm ảnh mẫu cho cả thư mục.
+
 MỚI Ở BẢN 0.7 — SỬA LỖI LỚN VỀ CÂN BẰNG TRẮNG (máy mới: Nikon Z5 II, Sony đời mới...)
  - Trước bản 0.7, với máy mới, tool KHÔNG đọc được nhiệt độ màu gốc (As Shot) nên KHÔNG chỉnh được
    cân bằng trắng (cột "K tint" trống trong kết quả) — cả khi chép màu lẫn khi học phong cách. Đây

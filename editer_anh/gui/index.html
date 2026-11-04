@@ -614,7 +614,7 @@ function verdict(v) {
 }
 function metricTiles(rp) {
   const names = [["da", "Da người"], ["trắng", "Màu trắng"], ["trời", "Trời"], ["cây", "Cây lá"], ["sáng tối", "Điểm đen / trắng"],
-                 ["áo", "Màu áo (giữ như gốc)"]];
+                 ["áo", "Màu áo (giữ như gốc)"], ["điểm ảnh", "Từng điểm ảnh (cùng khung)"]];
   return `<div class="metrics">${names.filter(([k]) => rp && rp[k] != null).map(([k, label]) => {
     const [cls, txt] = verdict(rp[k]);
     return `<div class="metric ${cls}"><div class="k">${label}</div><div class="v">${rp[k].toFixed(1)}</div><div class="q">${txt}</div></div>`;
@@ -685,9 +685,9 @@ function resChep(res) {
   const cm = res.chep_mau || {};
   const real = !!cm.camera_raw;
   const rp = cm.camera_raw || cm.mo_phong;
-  const ref = S.jpg[0] && S.jpg[0].anh;
+  const refOf = (a) => (S.jpg[a.mau || 0] || S.jpg[0] || {});
   const imgs = (cm.anh_dai_dien || []).slice(0, 3).map((a) => `
-      <figure><figcaption>Ảnh mẫu</figcaption>${ref ? `<img src="${ref}" alt="">` : ""}</figure>
+      <figure><figcaption>Ảnh mẫu${S.jpg.length > 1 ? " giống cảnh nhất" : ""}</figcaption>${refOf(a).anh ? `<img src="${refOf(a).anh}" alt="">` : ""}</figure>
       <figure><figcaption>${a.nguon === "camera_raw" ? "Gốc (Camera Raw, chưa chỉnh)" : "Gốc"} · ${esc(a.ten)}</figcaption><img src="${a.goc}" alt=""></figure>
       <figure><figcaption>${a.nguon === "camera_raw" ? "Sau — Camera Raw dựng thật" : "Sau — xem trước (mô phỏng)"}</figcaption><img src="${a.ket_qua}" alt=""></figure>`).join("");
   return `<h2>Xong — ${written(res)}</h2>

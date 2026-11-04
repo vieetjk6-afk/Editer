@@ -293,6 +293,65 @@ def test_flowers_keep_color():
     assert rp["da"] < 3.0, rp
 
 
+def test_scene_matched_references():
+    """Nhiều ảnh mẫu khác cảnh (trong nhà tông ấm, ngoài trời tông lạnh): mỗi ảnh RAW phải theo ảnh
+    mẫu GIỐNG CẢNH NHẤT, không theo "trung bình" của tất cả (trung bình thì ảnh nào cũng lệch)."""
+    warm = render(scene(20)[0], Look(), Shot(1e6 / 7600, 6.0, 0.0))     # mẫu A: tông ấm
+    cool = render(scene(21)[0], Look(), Shot(1e6 / 4300, -4.0, 0.0))    # mẫu B: tông lạnh
+    items, pooled_px, pooled_reg, globs, n0 = [], [], [], [], 0
+    rng = np.random.default_rng(0)
+    e_a, e_b = rng.normal(size=16), rng.normal(size=16)
+    for name, (img, reg), e in (("A.jpg", (warm, scene(20)[1]), e_a), ("B.jpg", (cool, scene(21)[1]), e_b)):
+        s, _ = look.make_sample(img, reg, seed=n0)
+        items.append({"ten": name, "stats": look.measure(s.px, look.select(s, ref=True)), "emb": e / np.linalg.norm(e)})
+        pooled_px.append(s.px)
+        pooled_reg.append(s.reg)
+        globs.append(s.glob + n0)
+        n0 += len(s.px)
+    ps = look.Sample(np.concatenate(pooled_px), np.concatenate(pooled_reg), np.concatenate(globs))
+    psel = look.select(ps, ref=True)
+    ref = look.Reference(ps, psel, look.measure(ps.px, psel), None, items)
+    reps, kelvin = [], {}
+    for name, sc, e in (("a", 22, e_a), ("b", 23, e_b)):
+        img, reg = scene(sc)
+        s, idx = look.make_sample(img, reg, seed=sc)
+        tgt, used = look.scene_target(ref, e + rng.normal(scale=0.05, size=16))
+        assert used and used[0][0] == (0 if name == "a" else 1), used
+        reps.append(look.Rep(s.px, look.select(s), Look(), AS_SHOT, s.reg, None, tgt))
+    lk, shots = look.solve(reps, ref.stats, psel, Look(), [AS_SHOT, AS_SHOT], [AS_SHOT, AS_SHOT], use_local=False)
+    kelvin = [1e6 / sh.mired for sh in shots]
+    print(f"[ảnh mẫu theo cảnh] ảnh giống mẫu ấm: {kelvin[0]:.0f}K, ảnh giống mẫu lạnh: {kelvin[1]:.0f}K")
+    assert kelvin[0] - kelvin[1] > 1500, kelvin
+
+
+def test_same_photo_pixel_match():
+    """Ảnh mẫu là bản đã chỉnh (xuất nhỏ, như gửi qua Zalo/Facebook) của CHÍNH một ảnh RAW: khớp
+    từng điểm ảnh phải ra gần như y hệt, tốt hơn khớp theo vùng."""
+    from PIL import Image
+    target, reg = scene(24, light_k=4800)
+    edited = render(target, TRUE_LOOK, TRUE_SHOT, reg=reg)
+    small = np.asarray(Image.fromarray(edited).resize((180, 120), Image.LANCZOS))
+    moved = np.roll(target, 30, axis=1)          # ảnh chụp liên tiếp, người/khung lệch một chút
+    assert look.same_frame(target, small) > 0.8, look.same_frame(target, small)
+    assert look.same_frame(target, moved) < 0.8, look.same_frame(target, moved)
+    _, _, ref_sel, ref = stats_of(edited, reg, seed=3, ref=True)
+    s, idx = look.make_sample(target, reg, seed=1)
+    lab_all = color.srgb_to_lab(edited.reshape(-1, 3) / 255.0)
+    out_de = {}
+    for mode in ("vùng", "điểm"):
+        sel = look.select(s)
+        tgt = dict(ref)
+        if mode == "điểm":
+            sel.pix, tgt["pix"] = look.pixel_targets(target, s, idx, small)
+        rep_ = look.Rep(s.px, sel, Look(), AS_SHOT, s.reg, None, tgt)
+        lk, shots = look.solve([rep_], ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=False)
+        out = render(target, lk, shots[0])
+        out_de[mode] = float(np.mean(color.delta_e2000(color.srgb_to_lab(out.reshape(-1, 3) / 255.0), lab_all)))
+    print(f"[cùng khung] lệch trung bình từng điểm ảnh: khớp theo vùng ΔE {out_de['vùng']:.2f} -> "
+          f"khớp từng điểm ΔE {out_de['điểm']:.2f}")
+    assert out_de["điểm"] < 3.0 and out_de["điểm"] <= out_de["vùng"] + 0.05, out_de
+
+
 def test_xmp_roundtrip(tmp: Path):
     vals, curve = look.xmp_values(TRUE_LOOK, TRUE_SHOT)
     p = tmp / "rt.xmp"
@@ -333,6 +392,8 @@ if __name__ == "__main__":
     test_dark_red_curtain()
     test_orange_reference_whites()
     test_flowers_keep_color()
+    test_scene_matched_references()
+    test_same_photo_pixel_match()
     with tempfile.TemporaryDirectory() as d:
         test_xmp_roundtrip(Path(d))
     test_transfer()
