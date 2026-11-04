@@ -49,14 +49,14 @@ jobs:
           python tests/test_ai.py
           python tests/test_look.py
           python tests/test_ps.py
+          python tests/test_gui_api.py
+          python -c "import webview; print('pywebview', webview.__version__ if hasattr(webview, '__version__') else '?')"
           python tests/test_e2e.py "$env:RUNNER_TEMP\e2e"
 
       - name: Đóng gói .exe
         run: |
-          pyinstaller --noconfirm --onedir --console --name editer-anh --paths . `
-            --collect-all sklearn --collect-all rawpy --collect-all onnxruntime `
-            --hidden-import win32com.client --hidden-import pythoncom --hidden-import pywintypes `
-            --add-data "models;models" packaging/run.py
+          pyinstaller --noconfirm packaging/editer.spec
+          Get-ChildItem dist/editer-anh -Filter *.exe | ForEach-Object { $_.Name }
           Copy-Item packaging/HUONG-DAN.txt dist/editer-anh/
           Compress-Archive -Path dist/editer-anh -DestinationPath Editer-Anh-Windows.zip
 
@@ -71,6 +71,16 @@ jobs:
           Write-Output $out
           if ($out -notmatch "AI phân vùng \(da, trắng, trời, cây\): BẬT") { throw "bản .exe không bật được AI phân vùng" }
           dist/editer-anh/editer-anh.exe --help | Out-Null
+
+      - name: Thử giao diện cửa sổ (không bắt buộc — máy build có thể không có màn hình)
+        continue-on-error: true
+        run: |
+          $out = "$env:RUNNER_TEMP\gui-selftest.txt"
+          $p = Start-Process -FilePath "dist/editer-anh/Editer Anh.exe" -ArgumentList "--tu-kiem-tra", "`"$out`"" -PassThru
+          if (-not $p.WaitForExit(150000)) { $p.Kill(); Write-Output "giao diện: hết giờ chờ" }
+          if (Test-Path $out) { Write-Output ("giao diện: " + (Get-Content $out -Raw)) } else { Write-Output "giao diện: không có kết quả" }
+          $log = "$env:USERPROFILE\Editer\nhat-ky.txt"
+          if (Test-Path $log) { Get-Content $log -Tail 25 }
 
       - name: Lấy số phiên bản
         id: ver

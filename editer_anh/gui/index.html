@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editer Ảnh</title>
+<style>
+  :root {
+    --bg: #16171a; --side: #1b1d21; --card: #22252a; --card2: #2a2e34; --line: #343941;
+    --text: #e9ebee; --muted: #9ba1a9; --faint: #6c737c;
+    --accent: #5b8cff; --accent-strong: #3f74f2; --accent-soft: rgba(91, 140, 255, .14);
+    --ok: #39c98a; --warn: #f0b44a; --bad: #ff6f6f;
+    --r: 12px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+    display: grid; grid-template-columns: 248px 1fr; overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- thanh bên ---------- */
+  aside {
+    background: var(--side); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; padding: 18px 12px; gap: 4px; min-height: 0;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 18px; }
+  .brand .logo {
+    width: 34px; height: 34px; border-radius: 9px; flex: none;
+    background: conic-gradient(from 210deg, #ff9a5a, #ffd35a, #6ee7a8, #5b8cff, #b07bff, #ff9a5a);
+    box-shadow: inset 0 0 0 7px var(--side);
+  }
+  .brand b { font-size: 16px; letter-spacing: .2px; }
+  .brand small { display: block; color: var(--faint); font-size: 12px; }
+  .nav {
+    display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+    padding: 10px 12px; border-radius: 9px; border: 0; background: none; cursor: pointer;
+    color: var(--muted); position: relative;
+  }
+  .nav svg { width: 18px; height: 18px; flex: none; }
+  .nav:hover { background: var(--card); color: var(--text); }
+  .nav.active { background: var(--card2); color: var(--text); }
+  .nav.active::before {
+    content: ""; position: absolute; left: -12px; top: 9px; bottom: 9px; width: 3px;
+    border-radius: 0 3px 3px 0; background: var(--accent);
+  }
+  .side-foot { margin-top: auto; display: grid; gap: 8px; padding: 10px 6px 0; }
+  .chip {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 9px 11px; font-size: 12.5px; color: var(--muted);
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.warn { border-color: rgba(240, 180, 74, .4); }
+  .linkbtn { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-size: 12.5px; }
+  .linkbtn:hover { text-decoration: underline; }
+
+  /* ---------- nội dung ---------- */
+  main { overflow-y: auto; min-height: 0; }
+  .view { display: none; max-width: 1080px; margin: 0 auto; padding: 30px 34px 60px; }
+  .view.active { display: block; }
+  .head h1 { font-size: 24px; margin: 0 0 4px; font-weight: 650; letter-spacing: -.2px; }
+  .head p { margin: 0 0 22px; color: var(--muted); max-width: 760px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+    padding: 18px; min-width: 0;
+  }
+  .card + .card, .grid2 + .card, .card + .actions { margin-top: 16px; }
+  .grid2 > .card { margin-top: 0; }
+  .card h3 { margin: 0 0 12px; font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .step {
+    width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700;
+  }
+  .hint { color: var(--faint); font-size: 12.5px; margin-top: 8px; }
+
+  /* ô kéo thả */
+  .drop { border: 1.5px dashed var(--line); transition: border-color .15s, background .15s; }
+  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .empty { display: grid; place-items: center; text-align: center; gap: 10px; padding: 22px 8px; color: var(--muted); }
+  .empty svg { width: 34px; height: 34px; color: var(--faint); }
+  .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .thumbs.small { grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 12px; }
+  .tile { position: relative; border-radius: 8px; overflow: hidden; background: #111; aspect-ratio: 3 / 2; }
+  .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tile .x {
+    position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; border-radius: 50%;
+    border: 0; background: rgba(0, 0, 0, .65); color: #fff; cursor: pointer; line-height: 22px; padding: 0;
+  }
+  .tile .cap {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 7px 5px; font-size: 11.5px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, .7)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .folder { display: flex; align-items: center; gap: 12px; }
+  .folder .ic { width: 40px; height: 40px; border-radius: 10px; background: var(--card2); display: grid; place-items: center; flex: none; }
+  .folder .ic svg { width: 20px; height: 20px; color: var(--accent); }
+  .folder .meta { min-width: 0; flex: 1; }
+  .folder .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .folder .path { color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stats { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+
+  /* nút */
+  .btn {
+    border: 1px solid var(--line); background: var(--card2); border-radius: 9px; padding: 8px 14px;
+    cursor: pointer; font-weight: 550; white-space: nowrap;
+  }
+  .btn:hover { border-color: #4a515b; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 11px 22px; font-size: 15px; }
+  .btn.primary:hover { background: var(--accent-strong); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .actions { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
+  .actions .why { color: var(--faint); font-size: 13px; }
+
+  /* tuỳ chọn */
+  .opt { display: flex; align-items: flex-start; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .card h3 + .opt, .card > .opt:first-child { border-top: 0; padding-top: 2px; }
+  .opt .txt { flex: 1; }
+  .opt .txt b { display: block; font-weight: 600; }
+  .opt .txt span { color: var(--muted); font-size: 12.5px; }
+  .switch { position: relative; width: 42px; height: 24px; flex: none; margin-top: 2px; }
+  .switch input { opacity: 0; width: 100%; height: 100%; margin: 0; position: absolute; cursor: pointer; z-index: 1; }
+  .switch .tr { position: absolute; inset: 0; border-radius: 99px; background: #3b4048; transition: background .15s; }
+  .switch .tr::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; transition: transform .15s;
+  }
+  .switch input:checked + .tr { background: var(--accent); }
+  .switch input:checked + .tr::after { transform: translateX(18px); }
+  .switch input:disabled + .tr { opacity: .4; }
+  .switch input:focus-visible + .tr { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type=range] { width: 220px; accent-color: var(--accent); }
+  .rangeval { font-variant-numeric: tabular-nums; min-width: 46px; display: inline-block; text-align: right; }
+  input[type=text] {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 260px;
+  }
+  input[type=text]::placeholder { color: var(--faint); }
+  .callout {
+    border: 1px solid rgba(240, 180, 74, .45); background: rgba(240, 180, 74, .08); color: #f5d79c;
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;
+  }
+
+  /* chạy */
+  .run { margin-top: 18px; }
+  .stage { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .stage b { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { height: 6px; background: var(--card2); border-radius: 99px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 99px; transition: width .3s; }
+  .bar.indet > i {
+    width: 35%; animation: slide 1.2s ease-in-out infinite;
+  }
+  @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+  details.log { margin-top: 12px; }
+  details.log summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .log pre {
+    margin: 8px 0 0; max-height: 260px; overflow: auto; background: #111316; border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; font: 12px/1.55 "Cascadia Mono", Consolas, monospace; color: #c9cdd3;
+    white-space: pre-wrap; word-break: break-word;
+  }
+
+  /* kết quả */
+  .result h2 { font-size: 17px; margin: 0 0 4px; }
+  .result .sub { color: var(--muted); margin: 0 0 16px; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .metric { background: var(--card2); border-radius: 10px; padding: 12px 14px; border-left: 3px solid var(--line); }
+  .metric .k { color: var(--muted); font-size: 12.5px; }
+  .metric .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .metric .q { font-size: 12px; }
+  .metric.ok { border-left-color: var(--ok); } .metric.ok .q { color: var(--ok); }
+  .metric.warn { border-left-color: var(--warn); } .metric.warn .q { color: var(--warn); }
+  .metric.bad { border-left-color: var(--bad); } .metric.bad .q { color: var(--bad); }
+  .compare { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+  .compare figure { margin: 0; }
+  .compare figcaption { color: var(--muted); font-size: 12.5px; margin-bottom: 6px; }
+  .compare img { width: 100%; border-radius: 8px; display: block; background: #111; aspect-ratio: 3 / 2; object-fit: cover; }
+  .row-btns { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  .error { border-color: rgba(255, 111, 111, .5); }
+  .error h2 { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  th { color: var(--muted); font-weight: 550; font-size: 12.5px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
+  .list { display: grid; gap: 8px; margin-bottom: 12px; }
+  .list .folder { background: var(--card2); border-radius: 10px; padding: 10px 12px; }
+  .list .folder .ic { background: var(--card); width: 34px; height: 34px; }
+  .xbtn { border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 18px; padding: 0 4px; }
+  .xbtn:hover { color: var(--bad); }
+  .toast {
+    position: fixed; right: 22px; bottom: 22px; background: var(--card2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 11px 15px; max-width: 420px; box-shadow: 0 8px 30px rgba(0, 0, 0, .4);
+    opacity: 0; transform: translateY(8px); transition: .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: none; }
+  @media (max-width: 1100px) { .grid2 { grid-template-columns: 1fr; } .compare { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11z"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="i-learn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M7 10v5c0 1.5 2.2 3 5 3s5-1.5 5-3v-5"/></symbol>
+  <symbol id="i-ps" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 15V9h2.2a2 2 0 0 1 0 4H8M17 10.2c-.4-.5-1-.7-1.6-.7-.8 0-1.4.4-1.4 1s.6.8 1.4 1 1.6.5 1.6 1.2-.7 1.1-1.5 1.1c-.7 0-1.3-.3-1.7-.8"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
+  <symbol id="i-raw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
+</svg>
+
+<aside>
+  <div class="brand"><div class="logo"></div><div><b>Editer Ảnh</b><small id="ver">&nbsp;</small></div></div>
+  <button class="nav active" data-view="chep"><svg><use href="#i-drop"/></svg>Chép màu từ ảnh mẫu</button>
+  <button class="nav" data-view="pc"><svg><use href="#i-sliders"/></svg>Chỉnh theo phong cách</button>
+  <button class="nav" data-view="hoc"><svg><use href="#i-learn"/></svg>Học phong cách</button>
+  <button class="nav" data-view="ps"><svg><use href="#i-ps"/></svg>Kiểm tra Photoshop</button>
+  <div class="side-foot">
+    <div class="chip" id="chip-style">Phong cách: <b>đang tải…</b></div>
+    <div class="chip warn" id="chip-gpu" hidden>AI đang chạy bằng <b>CPU</b> (lần trước card đồ hoạ bị lỗi)</div>
+    <div class="chip">Ảnh không rời khỏi máy · tool chỉ ghi file .xmp<br><button class="linkbtn" id="open-log">Mở nhật ký</button></div>
+  </div>
+</aside>
+
+<main>
+  <!-- ===================== CHÉP MÀU ===================== -->
+  <section class="view active" id="view-chep">
+    <div class="head">
+      <h1>Chép màu từ ảnh mẫu</h1>
+      <p>Chọn ảnh JPG có màu bạn thích và thư mục ảnh RAW. AI tìm da, màu trắng, trời, cây ở cả hai bên và chép màu theo từng vùng,
+        rồi ghi file .xmp — mở bằng Camera Raw / Bridge là thấy, mọi thanh trượt vẫn chỉnh tiếp được.</p>
+    </div>
+    <div class="grid2">
+      <div class="card drop" data-zone="jpg">
+        <h3><span class="step">1</span>Ảnh mẫu (JPG)</h3>
+        <div class="empty" id="jpg-empty">
+          <svg><use href="#i-image"/></svg>
+          <div>Kéo thả 1 hoặc vài ảnh JPG có màu bạn muốn vào đây</div>
+          <button class="btn" data-act="pick-jpg">Chọn ảnh…</button>
+        </div>
+        <div class="thumbs" id="jpg-thumbs"></div>
+        <div class="hint" id="jpg-more" hidden><button class="linkbtn" data-act="pick-jpg">+ Thêm ảnh mẫu</button>
+          · Nhiều ảnh mẫu cùng tông thì càng chuẩn.</div>
+      </div>
+      <div class="card drop" data-zone="rawdir">
+        <h3><span class="step">2</span>Thư mục ảnh RAW</h3>
+        <div id="rawdir-box"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3><span class="step">3</span>Tuỳ chọn</h3>
+      <label class="opt">
+        <span class="switch"><input type="checkbox" id="o-ps" checked><span class="tr"></span></span>
+        <span class="txt"><b>Kiểm tra bằng Camera Raw thật (qua Photoshop)</b>
+          <span>Chính xác hơn: Photoshop tự mở vài ảnh đại diện, tool đo màu và sửa đến khi khớp, rồi báo độ lệch thật (ΔE).
+            Mất thêm vài phút — đừng thao tác trên Photoshop lúc đó.</span></span>
+      </label>
+      <label class="opt">
+        <span class="switch"><input type="checkbox" id="o-keep"><span class="tr"></span></span>
+        <span class="txt"><b>Giữ độ nét, khử nhiễu, mask da/tóc từ phong cách của bạn</b>
+          <span id="o-keep-note">Cần học phong cách trước (mục Học phong cách).</span></span>
+      </label>
+      <div class="opt">
+        <span class="txt"><b>Mức chép màu</b><span>100% = chép đủ; thấp hơn = chỉ đi một phần đường, giữ bớt màu gốc.</span></span>
+        <span><input type="range" id="o-strength" min="30" max="100" step="5" value="100">
+          <span class="rangeval" id="o-strength-v">100%</span></span>
+      </div>
+      <label class="opt">
+        <span class="switch"><input type="checkbox" id="o-over"><span class="tr"></span></span>
+        <span class="txt"><b>Chỉnh cả ảnh đã có .xmp</b>
+          <span>Tắt: bỏ qua ảnh bạn đã chỉnh. Bật: ghi đè, bản cũ được giữ thành .xmp.bak.</span></span>
+      </label>
+      <div class="opt">
+        <span class="txt"><b>Lưu thành preset Camera Raw</b><span>Để dùng lại bằng tay cho ảnh khác (nhóm "Editer"). Bỏ trống nếu không cần.</span></span>
+        <input type="text" id="o-preset" placeholder="Tên preset, vd: Hàn Quốc nhẹ" maxlength="60">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="go-chep" data-act="go-chep">Bắt đầu chép màu</button>
+      <span class="why" id="why-chep"></span>
+    </div>
+    <div id="out-chep"></div>
+  </section>
+
+  <!-- ===================== CHỈNH THEO PHONG CÁCH ===================== -->
+  <section class="view" id="view-pc">
+    <div class="head">
+      <h1>Chỉnh theo phong cách của bạn</h1>
+      <p>Tool chỉnh màu thư mục RAW mới giống cách bạn hay chỉnh (học từ các job cũ): look nền + nhiệt độ màu, exposure… riêng từng ảnh,
+        ảnh cùng cảnh được kéo về cùng tông.</p>
+    </div>
+    <div class="callout" id="pc-nostyle" hidden>Chưa có phong cách. Vào <button class="linkbtn" data-goto="hoc">Học phong cách</button> trước.</div>
+    <div class="card drop" data-zone="pcdir">
+      <h3><span class="step">1</span>Thư mục ảnh RAW cần chỉnh</h3>
+      <div id="pcdir-box"></div>
+    </div>
+    <div class="card">
+      <label class="opt">
+        <span class="switch"><input type="checkbox" id="pc-over"><span class="tr"></span></span>
+        <span class="txt"><b>Chỉnh cả ảnh đã có .xmp</b><span>Bản cũ được giữ thành .xmp.bak.</span></span>
+      </label>
+    </div>
+    <div class="actions">
+      <button class="btn primary" data-act="go-pc">Bắt đầu chỉnh</button>
+      <span class="why" id="why-pc"></span>
+    </div>
+    <div id="out-pc"></div>
+  </section>
+
+  <!-- ===================== HỌC PHONG CÁCH ===================== -->
+  <section class="view" id="view-hoc">
+    <div class="head">
+      <h1>Học phong cách</h1>
+      <p>Chọn các thư mục job bạn đã chỉnh xong (ảnh RAW + file .xmp cạnh nhau). Càng nhiều job, càng nhiều kiểu ánh sáng thì càng chuẩn.
+        Học thêm job mới bất cứ lúc nào — tool chỉ đọc ảnh mới và cho biết độ chính xác tăng thế nào.</p>
+    </div>
+    <div class="card drop" data-zone="hoc">
+      <h3><span class="step">1</span>Các thư mục job đã chỉnh</h3>
+      <div class="list" id="hoc-list"></div>
+      <div class="empty" id="hoc-empty">
+        <svg><use href="#i-folder"/></svg>
+        <div>Kéo thả thư mục job vào đây (được nhiều thư mục)</div>
+        <button class="btn" data-act="add-hoc">Thêm thư mục…</button>
+      </div>
+      <div class="hint" id="hoc-more" hidden><button class="linkbtn" data-act="add-hoc">+ Thêm thư mục</button></div>
+    </div>
+    <div class="card">
+      <label class="opt">
+        <span class="switch"><input type="checkbox" id="hoc-reset"><span class="tr"></span></span>
+        <span class="txt"><b>Học lại từ đầu</b><span>Tắt (nên dùng): học thêm vào những gì đã học. Bật: bỏ dữ liệu cũ.</span></span>
+      </label>
+    </div>
+    <div class="actions">
+      <button class="btn primary" data-act="go-hoc">Bắt đầu học</button>
+      <span class="why" id="why-hoc"></span>
+    </div>
+    <div id="out-hoc"></div>
+  </section>
+
+  <!-- ===================== KIỂM TRA PHOTOSHOP ===================== -->
+  <section class="view" id="view-ps">
+    <div class="head">
+      <h1>Kiểm tra kết nối Photoshop</h1>
+      <p>Để chép màu chính xác, tool nhờ Photoshop mở ảnh bằng Camera Raw thật. Chọn 1 ảnh RAW bất kỳ: Photoshop sẽ tự mở ảnh đó rồi đóng lại.
+        Nếu báo lỗi, chế độ chép màu vẫn chạy được (chỉ là ước lượng).</p>
+    </div>
+    <div class="card drop" data-zone="psraw">
+      <h3><span class="step">1</span>Một ảnh RAW để thử</h3>
+      <div id="psraw-box"></div>
+    </div>
+    <div class="actions">
+      <button class="btn primary" data-act="go-ps">Kiểm tra</button>
+      <span class="why" id="why-ps"></span>
+    </div>
+    <div id="out-ps"></div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtN = (n) => Number(n).toLocaleString("vi-VN");
+let API = null, INFO = null;
+const S = { jpg: [], rawdir: null, pcdir: null, hoc: [], psraw: null, busy: false, zone: null, view: "chep" };
+
+function toast(msg, ms = 3800) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), ms);
+}
+
+/* ---------- điều hướng ---------- */
+function show(view) {
+  S.view = view;
+  $$(".nav").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  $$(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + view));
+}
+$$(".nav").forEach((b) => b.addEventListener("click", () => show(b.dataset.view)));
+document.addEventListener("click", (e) => {
+  const g = e.target.closest("[data-goto]"); if (g) show(g.dataset.goto);
+});
+
+/* ---------- vẽ các ô ---------- */
+function folderBox(f, zone, pickLabel) {
+  if (!f) {
+    return `<div class="empty"><svg><use href="#i-folder"/></svg>
+      <div>Kéo thả thư mục ảnh RAW vào đây</div>
+      <button class="btn" data-act="pick-${zone}">${pickLabel}</button></div>`;
+  }
+  const done = f.so_xmp ? ` · <b>${fmtN(f.so_xmp)}</b> ảnh đã có .xmp` : "";
+  return `<div class="folder"><div class="ic"><svg><use href="#i-folder"/></svg></div>
+      <div class="meta"><div class="name">${esc(f.ten)}</div><div class="path" title="${esc(f.path)}">${esc(f.path)}</div>
+      <div class="stats"><b>${fmtN(f.so_raw)}</b> ảnh RAW${done}</div></div>
+      <button class="btn" data-act="pick-${zone}">Đổi…</button></div>
+    ${f.anh && f.anh.length ? `<div class="thumbs small">${f.anh.map((a) => `<div class="tile"><img src="${a}" alt=""></div>`).join("")}</div>` : ""}`;
+}
+function renderJpg() {
+  $("#jpg-empty").hidden = S.jpg.length > 0;
+  $("#jpg-more").hidden = S.jpg.length === 0;
+  $("#jpg-thumbs").innerHTML = S.jpg.map((j, i) => `<div class="tile">${j.anh ? `<img src="${j.anh}" alt="">` : ""}
+      <button class="x" title="Bỏ ảnh này" data-act="rm-jpg" data-i="${i}">×</button><div class="cap">${esc(j.ten)}</div></div>`).join("");
+  check();
+}
+function renderBoxes() {
+  $("#rawdir-box").innerHTML = folderBox(S.rawdir, "rawdir", "Chọn thư mục…");
+  $("#pcdir-box").innerHTML = folderBox(S.pcdir, "pcdir", "Chọn thư mục…");
+  $("#psraw-box").innerHTML = S.psraw
+    ? `<div class="folder"><div class="ic"><svg><use href="#i-raw"/></svg></div><div class="meta"><div class="name">${esc(S.psraw.ten)}</div>
+        <div class="path">${esc(S.psraw.path)}</div></div><button class="btn" data-act="pick-psraw">Đổi…</button></div>
+        ${S.psraw.anh ? `<div class="thumbs small"><div class="tile"><img src="${S.psraw.anh}" alt=""></div></div>` : ""}`
+    : `<div class="empty"><svg><use href="#i-raw"/></svg><div>Kéo thả 1 file RAW (NEF, ARW, CR3…) vào đây</div>
+        <button class="btn" data-act="pick-psraw">Chọn ảnh RAW…</button></div>`;
+  $("#hoc-list").innerHTML = S.hoc.map((f, i) => `<div class="folder"><div class="ic"><svg><use href="#i-folder"/></svg></div>
+      <div class="meta"><div class="name">${esc(f.ten)}</div><div class="stats"><b>${fmtN(f.so_xmp)}</b> ảnh đã chỉnh / ${fmtN(f.so_raw)} RAW</div></div>
+      <button class="xbtn" title="Bỏ thư mục" data-act="rm-hoc" data-i="${i}">×</button></div>`).join("");
+  $("#hoc-empty").hidden = S.hoc.length > 0;
+  $("#hoc-more").hidden = S.hoc.length === 0;
+  check();
+}
+function check() {
+  const style = INFO && INFO.phong_cach && INFO.phong_cach.co;
+  const why = {
+    chep: !S.jpg.length ? "Chọn ít nhất 1 ảnh mẫu" : !S.rawdir ? "Chọn thư mục ảnh RAW" : !S.rawdir.so_raw ? "Thư mục không có ảnh RAW" : "",
+    pc: !style ? "Chưa có phong cách" : !S.pcdir ? "Chọn thư mục ảnh RAW" : !S.pcdir.so_raw ? "Thư mục không có ảnh RAW" : "",
+    hoc: !S.hoc.length ? "Thêm ít nhất 1 thư mục job" : S.hoc.every((f) => !f.so_xmp) ? "Các thư mục chưa có ảnh nào đã chỉnh (.xmp)" : "",
+    ps: !S.psraw ? "Chọn 1 ảnh RAW" : "",
+  };
+  for (const k in why) {
+    $("#why-" + k).textContent = S.busy ? "Đang chạy…" : why[k];
+    const b = $(`[data-act="go-${k}"]`); if (b) b.disabled = S.busy || !!why[k];
+  }
+}
+
+/* ---------- chọn / kéo thả ---------- */
+async function addJpg(paths) {
+  if (!paths || !paths.length) return;
+  const items = await API.xem_anh(paths);
+  if (!items.length) { toast("Không nhận ra ảnh — dùng JPG, PNG hoặc TIFF."); return; }
+  for (const it of items) if (!S.jpg.some((j) => j.path === it.path)) S.jpg.push(it);
+  renderJpg();
+}
+async function setFolder(key, path) {
+  if (!path) return;
+  $(`#${key}-box`).innerHTML = `<div class="empty"><div>Đang xem thư mục…</div></div>`;
+  const f = await API.xem_thu_muc(path);
+  if (!f.ok) { toast(f.loi); renderBoxes(); return; }
+  if (!f.so_raw) toast(`Không thấy ảnh RAW trong "${f.ten}".`);
+  S[key] = f; renderBoxes();
+}
+async function addHoc(path) {
+  if (!path || S.hoc.some((f) => f.path === path)) return;
+  const f = await API.xem_thu_muc(path);
+  if (!f.ok) { toast(f.loi); return; }
+  if (!f.so_xmp) toast(`"${f.ten}" chưa có ảnh nào đã chỉnh (.xmp) — tool chỉ học từ ảnh đã chỉnh.`);
+  S.hoc.push(f); renderBoxes();
+}
+async function setRaw(path) {
+  if (!path) return;
+  const r = await API.xem_raw(path);
+  if (!r.ok) { toast(r.loi); return; }
+  S.psraw = r; renderBoxes();
+}
+document.addEventListener("click", async (e) => {
+  const el = e.target.closest("[data-act]"); if (!el || el.disabled) return;
+  const act = el.dataset.act;
+  if (act === "pick-jpg") addJpg(await API.chon_anh_mau());
+  else if (act === "rm-jpg") { S.jpg.splice(+el.dataset.i, 1); renderJpg(); }
+  else if (act === "pick-rawdir") setFolder("rawdir", await API.chon_thu_muc());
+  else if (act === "pick-pcdir") setFolder("pcdir", await API.chon_thu_muc());
+  else if (act === "add-hoc") addHoc(await API.chon_thu_muc());
+  else if (act === "rm-hoc") { S.hoc.splice(+el.dataset.i, 1); renderBoxes(); }
+  else if (act === "pick-psraw") setRaw(await API.chon_raw());
+  else if (act.startsWith("go-")) start(act.slice(3));
+  else if (act === "open") API.mo(el.dataset.path);
+});
+$$(".drop").forEach((z) => {
+  z.addEventListener("dragenter", (e) => { e.preventDefault(); z.classList.add("over"); S.zone = z.dataset.zone; });
+  z.addEventListener("dragover", (e) => { e.preventDefault(); z.classList.add("over"); S.zone = z.dataset.zone; });
+  z.addEventListener("dragleave", (e) => { if (!z.contains(e.relatedTarget)) z.classList.remove("over"); });
+  z.addEventListener("drop", (e) => { e.preventDefault(); z.classList.remove("over"); S.zone = z.dataset.zone; });
+});
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", (e) => { e.preventDefault(); if (!e.target.closest(".drop")) S.zone = null; });
+/* Python gửi đường dẫn thật của file/thư mục vừa thả vào cửa sổ */
+window.onNativeDrop = async (paths) => {
+  if (!paths || !paths.length) { toast("Không lấy được đường dẫn — hãy dùng nút Chọn…"); return; }
+  const k = await API.phan_loai(paths);
+  const zone = S.zone || { chep: k.anh.length ? "jpg" : "rawdir", pc: "pcdir", hoc: "hoc", ps: "psraw" }[S.view];
+  S.zone = null;
+  const folder = k.thu_muc[0] || k.raw[0];   // thả file RAW -> lấy thư mục chứa nó
+  if (zone === "jpg") k.anh.length ? addJpg(k.anh) : toast("Ô này nhận ảnh JPG mẫu.");
+  else if (zone === "rawdir" || zone === "pcdir") folder ? setFolder(zone, folder) : toast("Ô này nhận thư mục ảnh RAW.");
+  else if (zone === "hoc") { if (!k.thu_muc.length) toast("Ô này nhận thư mục job."); for (const p of k.thu_muc) await addHoc(p); }
+  else if (zone === "psraw") k.raw.length ? setRaw(k.raw[0]) : toast("Ô này nhận 1 file ảnh RAW.");
+};
+
+/* ---------- chạy việc ---------- */
+async function start(view) {
+  const viec = { chep: "chep-mau", pc: "phong-cach", hoc: "hoc", ps: "kiem-tra-ps" }[view];
+  const o = {
+    chep: () => ({ thu_muc: S.rawdir.path, anh_mau: S.jpg.map((j) => j.path), photoshop: $("#o-ps").checked,
+                   giu_chi_tiet: $("#o-keep").checked, ghi_de: $("#o-over").checked,
+                   do_manh: $("#o-strength").value / 100, preset: $("#o-preset").value }),
+    pc: () => ({ thu_muc: S.pcdir.path, ghi_de: $("#pc-over").checked }),
+    hoc: () => ({ thu_muc_list: S.hoc.map((f) => f.path), hoc_lai: $("#hoc-reset").checked }),
+    ps: () => ({ raw: S.psraw.path }),
+  }[view]();
+  const r = await API.bat_dau(viec, o);
+  if (!r.ok) { toast(r.loi); return; }
+  S.busy = true; check();
+  const out = $("#out-" + view);
+  out.innerHTML = `<div class="card run"><div class="stage"><b id="st-${view}">Đang bắt đầu…</b><span id="tm-${view}">0:00</span></div>
+      <div class="bar indet" id="bar-${view}"><i></i></div>
+      <details class="log" id="lg-${view}"><summary>Chi tiết</summary><pre></pre></details></div>`;
+  out.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  poll(view);
+}
+async function poll(view) {
+  let st;
+  try { st = await API.trang_thai(); } catch (e) { setTimeout(() => poll(view), 800); return; }
+  const pre = $(`#lg-${view} pre`);
+  if (pre && st.dong.length) {
+    pre.textContent += st.dong.join("\n") + "\n";
+    pre.scrollTop = pre.scrollHeight;
+  }
+  const stEl = $("#st-" + view); if (stEl && st.buoc) stEl.textContent = st.buoc;
+  const tm = $("#tm-" + view); if (tm) tm.textContent = `${Math.floor(st.giay / 60)}:${String(st.giay % 60).padStart(2, "0")}`;
+  const bar = $("#bar-" + view);
+  if (bar && st.tien_do && st.tien_do[1]) {
+    const pct = Math.round(100 * st.tien_do[0] / st.tien_do[1]);
+    bar.classList.toggle("indet", pct >= 100); bar.firstElementChild.style.width = pct >= 100 ? "" : pct + "%";
+  }
+  if (st.chay) { setTimeout(() => poll(view), 400); return; }
+  S.busy = false; check();
+  finish(view, st);
+}
+function verdict(v) {
+  if (v < 2) return ["ok", "Gần như y hệt"];
+  if (v < 5) return ["warn", "Gần giống"];
+  return ["bad", "Còn khác rõ"];
+}
+function metricTiles(rp) {
+  const names = [["da", "Da người"], ["trắng", "Màu trắng"], ["trời", "Trời"], ["cây", "Cây lá"], ["sáng tối", "Sáng tối"]];
+  return `<div class="metrics">${names.filter(([k]) => rp && rp[k] != null).map(([k, label]) => {
+    const [cls, txt] = verdict(rp[k]);
+    return `<div class="metric ${cls}"><div class="k">${label}</div><div class="v">${rp[k].toFixed(1)}</div><div class="q">${txt}</div></div>`;
+  }).join("")}</div>`;
+}
+function openBtns(res) {
+  return `<div class="row-btns">
+    ${res.thu_muc ? `<button class="btn" data-act="open" data-path="${esc(res.thu_muc)}">Mở thư mục ảnh</button>` : ""}
+    ${res.csv ? `<button class="btn" data-act="open" data-path="${esc(res.csv)}">Mở bảng chi tiết (Excel)</button>` : ""}
+  </div>`;
+}
+function finish(view, st) {
+  const out = $("#out-" + view);
+  const runCard = out.querySelector(".run");
+  if (runCard) {
+    const bar = runCard.querySelector(".bar"); bar.classList.remove("indet");
+    bar.firstElementChild.style.transition = "none";
+    bar.firstElementChild.style.width = "100%";
+    bar.firstElementChild.style.background = st.loi ? "var(--bad)" : "var(--ok)";
+    runCard.querySelector(".stage b").textContent = st.loi ? "Dừng lại vì có lỗi" : "Hoàn tất";
+  }
+  const box = document.createElement("div");
+  box.className = "card result";
+  if (st.loi) {
+    box.classList.add("error");
+    box.innerHTML = `<h2>Chưa xong — có lỗi</h2><p class="sub">${esc(st.loi)}</p>
+      <div class="row-btns"><button class="btn" data-act="open" data-path="${esc(INFO.nhat_ky)}">Mở nhật ký</button></div>`;
+    if (runCard) runCard.querySelector("details").open = true;
+  } else {
+    const res = st.ket_qua || {};
+    box.innerHTML = ({ chep: resChep, pc: resPc, hoc: resHoc, ps: resPs }[view])(res);
+    if (view === "hoc") refreshInfo();
+  }
+  out.appendChild(box);
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function written(res) {
+  if (res.thong_bao) return esc(res.thong_bao);
+  const parts = [`Đã ghi .xmp cho <b>${fmtN(res.ghi + (res.de || 0))}</b> ảnh`];
+  if (res.de) parts.push(`(${fmtN(res.de)} ảnh ghi đè, bản cũ giữ ở .xmp.bak)`);
+  if (res.so_canh) parts.push(`· ${res.so_canh} cảnh`);
+  return parts.join(" ");
+}
+function resChep(res) {
+  const cm = res.chep_mau || {};
+  const real = !!cm.camera_raw;
+  const rp = cm.camera_raw || cm.mo_phong;
+  const ref = S.jpg[0] && S.jpg[0].anh;
+  const imgs = (cm.anh_dai_dien || []).slice(0, 3).map((a) => `
+      <figure><figcaption>Ảnh mẫu</figcaption>${ref ? `<img src="${ref}" alt="">` : ""}</figure>
+      <figure><figcaption>Gốc · ${esc(a.ten)}</figcaption><img src="${a.goc}" alt=""></figure>
+      <figure><figcaption>${a.nguon === "camera_raw" ? "Sau — Camera Raw dựng thật" : "Sau — xem trước (mô phỏng)"}</figcaption><img src="${a.ket_qua}" alt=""></figure>`).join("");
+  return `<h2>Xong — ${written(res)}</h2>
+    <p class="sub">${real ? "Độ lệch màu đo trên ảnh <b>Camera Raw dựng thật</b> so với ảnh mẫu (ΔE: dưới 2 mắt gần như không phân biệt)."
+      : "Độ lệch <b>ước lượng</b> (chưa kiểm tra bằng Camera Raw). Bật “Kiểm tra bằng Camera Raw thật” để có số đo thật."}</p>
+    ${metricTiles(rp)}
+    ${imgs ? `<div class="compare">${imgs}</div>` : ""}
+    ${cm.preset ? `<p class="hint">Đã lưu preset: ${esc(cm.preset)}</p>` : ""}
+    ${openBtns(res)}`;
+}
+function resPc(res) {
+  const sc = (res.canh || []).filter((c) => c.ten).slice(0, 8).map((c) => `<span class="pill">Cảnh ${c.so}: ${esc(c.ten)} · ${c.anh} ảnh</span>`).join(" ");
+  return `<h2>Xong — ${written(res)}</h2><p class="sub">Mở thư mục bằng Bridge hoặc Camera Raw để xem và chỉnh tiếp.</p>
+    ${sc ? `<p>${sc}</p>` : ""}${openBtns(res)}`;
+}
+function resHoc(res) {
+  const rows = (res.rows || []).map((r) => r.lech
+    ? `<tr><td>${esc(r.ten)}</td><td><b>${esc(r.lech)}</b></td><td>${esc(r.co_dinh)}</td><td>${r.khong_ai ? esc(r.khong_ai) : "—"}</td><td>${esc(r.cach)}</td></tr>`
+    : `<tr><td>${esc(r.ten)}</td><td colspan="4">Chưa đủ ảnh để kiểm tra (cần 40+)</td></tr>`).join("");
+  const tb = (res.tien_bo || []).map((h) => `${esc(h.lech)} <span class="hint">(${fmtN(h.n)} ảnh)</span>`).join(" → ");
+  return `<h2>Đã học từ ${fmtN(res.n)} ảnh</h2>
+    <p class="sub">Độ chính xác: giấu 1/5 số ảnh, cho tool đoán rồi so với cách bạn chỉnh thật. Số càng nhỏ càng giống bạn.</p>
+    <table><thead><tr><th>Thông số</th><th>Tool lệch trung bình</th><th>Nếu dùng 1 số cố định</th><th>Nếu không có AI</th><th>Cách tốt nhất</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    ${tb ? `<p class="sub" style="margin-top:14px">Tiến bộ qua các lần học (nhiệt độ màu): ${tb}</p>` : ""}`;
+}
+function resPs(res) {
+  return `<h2>Kết nối Photoshop: OK</h2><p class="sub">${esc(res.msg)}${res.giay ? ` · Camera Raw dựng ảnh mất ${res.giay} giây` : ""}.
+    Chế độ chép màu có thể kiểm tra bằng Camera Raw thật.</p>
+    ${res.anh ? `<div class="compare"><figure><figcaption>Ảnh do Camera Raw dựng</figcaption><img src="${res.anh}" alt=""></figure></div>` : ""}`;
+}
+
+/* ---------- khởi động ---------- */
+$("#o-strength").addEventListener("input", (e) => { $("#o-strength-v").textContent = e.target.value + "%"; });
+$("#open-log").addEventListener("click", () => INFO && API.mo(INFO.nhat_ky));
+async function refreshInfo() {
+  INFO = await API.info();
+  $("#ver").textContent = "Phiên bản " + INFO.phien_ban;
+  const pc = INFO.phong_cach;
+  $("#chip-style").innerHTML = pc.co
+    ? `Phong cách: <b>đã học ${fmtN(pc.n)} ảnh</b><br>${esc((pc.may || []).join(", "))} · ${esc(pc.ngay || "")}`
+    : `Phong cách: <b>chưa học</b>`;
+  $("#chip-gpu").hidden = !INFO.gpu_tat;
+  $("#pc-nostyle").hidden = pc.co;
+  const keep = $("#o-keep");
+  keep.disabled = !pc.co; if (pc.co && !keep.dataset.touched) keep.checked = true;
+  $("#o-keep-note").textContent = pc.co ? "Lấy từ phong cách bạn đã học; màu vẫn theo ảnh mẫu." : "Cần học phong cách trước (mục Học phong cách).";
+  if (!INFO.windows) { $("#o-ps").checked = false; }
+  check();
+}
+$("#o-keep").addEventListener("change", (e) => { e.target.dataset.touched = "1"; });
+async function init() {
+  API = window.pywebview.api;
+  renderJpg(); renderBoxes();
+  await refreshInfo();
+  window.__editerReady = true;
+}
+if (window.pywebview && window.pywebview.api) init();
+else window.addEventListener("pywebviewready", init);
+</script>
+</body>
+</html>

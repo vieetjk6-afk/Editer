@@ -821,7 +821,7 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
         r_act = np.concatenate([diff(_restrict(a, kk), ref, r.sel, ref_sel) for a, kk, r in zip(act, keys, reps)])
         seen.append((x_try.copy(), r_act))
         if best is None or score < best["score"]:
-            best = {"x": x_try.copy(), "act": act, "r_act": r_act, "score": score, "report": rp}
+            best = {"x": x_try.copy(), "act": act, "r_act": r_act, "score": score, "report": rp, "imgs": imgs}
             mu = mu if it == 0 else max(0.05, mu * 0.5)     # tốt -> nới vùng tin cậy
             mark = ""
         else:
@@ -848,7 +848,7 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
                            prox=(best["x"], mu), gmap=(ident, G))
         x_try = _pack(lk_p, sh_p)
     lk_b, sh_b = _unpack(best["x"], tmpl)
-    return (lk_b, sh_b, best["score"], best["report"]), history
+    return (lk_b, sh_b, best["score"], best["report"], best["imgs"]), history
 
 
 # ------------------------------------------------------------------ cả quy trình
@@ -941,6 +941,15 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
                             ref.stats, ref.sel, lk, shots, priors, iters=iters, log=log)
         lk, shots = best[0], best[1]
         info["camera_raw"], info["lich_su"] = best[3], hist
+        info["anh_dai_dien"] = [{"ten": Path(photos[i].path).name, "goc": photos[i].preview, "ket_qua": img,
+                                 "nguon": "camera_raw"} for i, img in zip(reps, best[4])]
+    else:   # xem trước bằng mô phỏng (gần đúng)
+        info["anh_dai_dien"] = []
+        for j, i in enumerate(reps):
+            pv = photos[i].preview
+            y = simulate(pv.reshape(-1, 3) / 255.0, Look(), cams[i], lk, shots[j])
+            info["anh_dai_dien"].append({"ten": Path(photos[i].path).name, "goc": pv, "nguon": "mo_phong",
+                                         "ket_qua": (np.clip(y, 0, 1).reshape(pv.shape) * 255 + 0.5).astype(np.uint8)})
     rep_shot = {i: shots[j] for j, i in enumerate(reps)}
     apps = {i: appearance(photos[i].preview) for i in range(n)}
     ys = {i: brightness(photos[i].preview, regmaps.get(i)) for i in range(n)}

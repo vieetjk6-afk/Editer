@@ -9,10 +9,14 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.3.1)
+## Editer Ảnh (bản 0.4)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
-Giải nén, bấm đúp `editer-anh.exe`.
+Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
+ảnh thu nhỏ, thanh tiến độ, thẻ ΔE và ảnh trước/sau. `editer-anh.exe` là bản menu chữ / dòng lệnh.
+
+Giao diện (0.4, `editer_anh/gui/`): pywebview (Edge WebView2) + `index.html`; phần xử lý ở `gui/api.py`.
+Hai file .exe dùng chung thư viện, đóng gói bằng `packaging/editer.spec`.
 Không cần cài Python. Cách dùng xem `packaging/HUONG-DAN.txt`.
 
 Có 3 chức năng:
@@ -71,7 +75,7 @@ Giới hạn hiện tại:
 - Bản ≤ 0.2 ghi Color Grading bằng khoá Camera Raw không hiểu (`ColorGradeShadowHue`),
   nên phần đó không có tác dụng. Đã sửa ở bản 0.3 (`SplitToning...`).
 
-Chạy test: `python tests/test_look.py`, `python tests/test_ps.py`,
+Chạy test: `python tests/test_look.py`, `python tests/test_ps.py`, `python tests/test_gui_api.py`,
 `python tests/test_e2e.py <thư mục tạm>`. Test có AI cần mô hình: `python packaging/get_model.py models`
 (cần mạng), hoặc mô hình giả `python tests/make_dummy_model.py <thư mục>` + `EDITER_MODELS=<thư mục>`.
 

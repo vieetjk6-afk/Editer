@@ -9,3 +9,5 @@ onnxruntime>=1.17; sys_platform != "win32"
 onnxruntime-directml>=1.17; sys_platform == "win32"
 # Điều khiển Photoshop (Camera Raw thật) để kiểm tra màu
 pywin32>=306; sys_platform == "win32"
+# Giao diện cửa sổ (Microsoft Edge WebView2, có sẵn trong Windows 10/11)
+pywebview>=5.0; sys_platform == "win32"

@@ -1,7 +1,14 @@
 EDITER ẢNH — HƯỚNG DẪN NHANH
 ============================
 
-Bấm đúp  editer-anh.exe  rồi chọn:
+Bấm đúp  "Editer Anh.exe"  -> cửa sổ giao diện (bấm nút, kéo thả ảnh/thư mục vào là chạy).
+Bên trái có 4 mục: Chép màu từ ảnh mẫu · Chỉnh theo phong cách · Học phong cách · Kiểm tra Photoshop.
+Kết quả hiện ngay trong cửa sổ: độ lệch màu (ΔE) từng vùng + ảnh mẫu / gốc / sau đặt cạnh nhau.
+
+(Nếu cửa sổ không mở được: cài "Microsoft Edge WebView2 Runtime" của Microsoft, hoặc dùng
+ editer-anh.exe — bản menu chữ, cùng các chức năng bên dưới.)
+
+Bản menu chữ: bấm đúp  editer-anh.exe  rồi chọn:
 
  1. HỌC PHONG CÁCH (làm 1 lần, học thêm khi có job mới)
     Kéo thả các thư mục job bạn ĐÃ chỉnh xong (có file .xmp cạnh ảnh RAW).

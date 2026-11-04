@@ -49,7 +49,7 @@ def _fmt_err(t: str, v: float) -> str:
     return f"±{v:.2f}"
 
 
-def cmd_hoc(a) -> None:
+def cmd_hoc(a) -> dict:
     t0 = time.time()
     out = Path(a.ra)
     prev = None
@@ -64,11 +64,16 @@ def cmd_hoc(a) -> None:
     style.save(m, out)
     _log(f"\nĐã học từ {m['n_photos']} ảnh ({', '.join(f'{k}: {v}' for k, v in m['counts'].items())}).")
     _log("Độ chính xác (giấu 1/5 số ảnh, cho tool đoán, so với cách bạn chỉnh thật):")
+    res = {"file": str(out.resolve()), "n": m["n_photos"], "counts": m["counts"], "rows": [], "tien_bo": []}
     for t, r in m["report"].items():
         n = _NAMES.get(t, t)
         if math.isnan(r["mae"]):
             _log(f"  {n:13s}: chưa đủ ảnh để kiểm tra (n={r['n']}, cần 40+)")
+            res["rows"].append({"ten": n, "lech": None, "n": r["n"]})
             continue
+        res["rows"].append({"ten": n, "lech": _fmt_err(t, r["mae"]), "co_dinh": _fmt_err(t, r["mae_median"]),
+                            "cach": _METHODS.get(r["method"], r["method"]),
+                            "khong_ai": _fmt_err(t, r["mae_no_ai"]) if "mae_no_ai" in r else None})
         _log(f"  {n:13s}: lệch TB {_fmt_err(t, r['mae']):>7s}  | dùng 1 số cố định: {_fmt_err(t, r['mae_median']):>7s}"
              f"  | cách tốt nhất: {_METHODS.get(r['method'], r['method'])}"
              + (f"  | nếu không có AI: {_fmt_err(t, r['mae_no_ai'])}" if "mae_no_ai" in r else ""))
@@ -76,7 +81,9 @@ def cmd_hoc(a) -> None:
     if len(hist) >= 2:
         _log("Tiến bộ qua các lần học (nhiệt độ màu): " + " -> ".join(
             f"{_fmt_err('d_mired', h['d_mired'])} ({h['n']} ảnh)" for h in hist[-6:]))
+        res["tien_bo"] = [{"lech": _fmt_err("d_mired", h["d_mired"]), "n": h["n"]} for h in hist[-6:]]
     _log(f"\nĐã lưu: {out.resolve()}  ({time.time() - t0:.0f}s)")
+    return res
 
 
 def _values_from_style(m: dict, ph: raw.Photo, pred: dict) -> dict:
@@ -100,7 +107,7 @@ def _template_for(m: dict | None, ph: raw.Photo, no_mask: bool) -> str | None:
     return xmp.template_drop_masks(t) if no_mask else t
 
 
-def cmd_chinh(a) -> None:
+def cmd_chinh(a) -> dict:
     folder = Path(a.thu_muc)
     raws = raw.list_raws(folder, recursive=not a.khong_thu_muc_con)
     if not raws:
@@ -113,7 +120,8 @@ def cmd_chinh(a) -> None:
         raws = todo
     if not raws:
         _log("Không còn ảnh nào cần chỉnh.")
-        return
+        return {"thu_muc": str(folder), "ghi": 0, "de": 0, "so_anh": 0, "csv": None, "chep_mau": None,
+                "thong_bao": "Không còn ảnh nào cần chỉnh (mọi ảnh đã có .xmp). Bật 'Ghi đè' để chỉnh lại."}
     m = style.load(a.phong_cach) if a.phong_cach else None
     if not m and not a.mau_jpg:
         raise SystemExit("Cần --phong-cach (file đã học) hoặc --mau-jpg (ảnh mẫu).")
@@ -143,8 +151,9 @@ def cmd_chinh(a) -> None:
     for sc in sorted(scene_names)[:15]:
         _log(f"  cảnh {sc + 1}: {scene_names[sc]} ({scenes.count(sc)} ảnh)")
 
+    jpg_info = None
     if a.mau_jpg:
-        all_vals, curves, templates = _copy_color(a, folder, m, photos, scenes, embs, emb_model)
+        all_vals, curves, templates, jpg_info = _copy_color(a, folder, m, photos, scenes, embs, emb_model)
     else:
         preds = style.predict(m, photos, embs if m.get("ai") else None)
         style.smooth_by_scene(preds, scenes)
@@ -183,6 +192,10 @@ def cmd_chinh(a) -> None:
         _log(f"Bảng chi tiết: {report}")
     if not a.thu:
         _log("Mở thư mục bằng Adobe Bridge hoặc Camera Raw để xem và chỉnh tiếp.")
+    return {"thu_muc": str(folder), "ghi": cnt["ghi"], "de": cnt["de"], "thu": cnt["thu"], "so_anh": len(rows),
+            "csv": str(report) if report else None, "so_canh": len(set(scenes)),
+            "canh": [{"so": sc + 1, "ten": scene_names.get(sc, ""), "anh": scenes.count(sc)}
+                     for sc in sorted(set(scenes))], "chep_mau": jpg_info, "curve": curves[0] if curves else None}
 
 
 def _compose_jpg(m: dict | None, ph: raw.Photo, lk: look.Look, shot: look.Shot, no_mask: bool):
@@ -252,6 +265,9 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
     finally:
         if ps_obj is not None:
             psmod.cleanup(folder)
+    gui_info = {"mo_phong": info.get("mo_phong"), "camera_raw": info.get("camera_raw"),
+                "ref_found": found, "photoshop": ps_obj is not None,
+                "anh_dai_dien": info.get("anh_dai_dien", []), "preset": None}
     if "camera_raw" in info:
         _log(f"KẾT QUẢ ĐO TRÊN CAMERA RAW (ảnh đại diện): {look.fmt_report(info['camera_raw'])}")
     else:
@@ -274,16 +290,18 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
             d.mkdir(parents=True, exist_ok=True)
             (d / f"{safe}.xmp").write_text(xmp.build_preset(name, vals[0], curves[0]), encoding="utf-8")
             _log(f"Đã lưu preset Camera Raw: {d / (safe + '.xmp')} (nhóm 'Editer'; chỉ có màu, không có WB/exposure)")
+            gui_info["preset"] = str(d / (safe + ".xmp"))
         except OSError as e:
             _log(f"Không lưu được preset: {e}")
-    return vals, curves, tpls
+    return vals, curves, tpls, gui_info
 
 
-def cmd_kiem_tra_ps(a) -> None:
+def cmd_kiem_tra_ps(a) -> dict:
     ps_obj, msg = psmod.check()
     if not ps_obj:
         raise SystemExit(f"Không kết nối được Photoshop: {msg}")
     _log(f"Kết nối OK: {msg}")
+    res = {"ok": True, "msg": msg, "anh": None, "giay": None}
     if a.anh:
         p = Path(a.anh)
         _log(f"Thử dựng {p.name} bằng Camera Raw (thông số trung tính)...")
@@ -296,6 +314,8 @@ def cmd_kiem_tra_ps(a) -> None:
         finally:
             psmod.cleanup(p.parent)
         _log(f"  OK: {img.shape[1]}x{img.shape[0]} px trong {time.time() - t:.1f}s, màu trung bình {img.reshape(-1, 3).mean(0).round()}")
+        res["anh"], res["giay"] = img, round(time.time() - t, 1)
+    return res
 
 
 def _masks_only(m: dict | None, ph: raw.Photo, no_mask: bool) -> str | None:
@@ -348,7 +368,8 @@ def menu() -> None:
     """Bấm đúp editer-anh.exe -> menu hỏi từng bước, không cần gõ lệnh."""
     _log(f"===== EDITER ẢNH {__version__} =====")
     _log("Ảnh không rời khỏi máy. Tool chỉ ghi file .xmp cạnh ảnh RAW, không sửa ảnh gốc.")
-    _log(f"(Nhật ký: {nhatky.FILE})\n")
+    _log(f"(Nhật ký: {nhatky.FILE})")
+    _log("Mẹo: bấm đúp 'Editer Anh.exe' cùng thư mục để dùng giao diện cửa sổ (kéo thả, xem ảnh).\n")
     _log("  1. Học phong cách từ các job đã chỉnh (RAW + .xmp)")
     _log("  2. Chỉnh một thư mục RAW theo phong cách đã học")
     _log("  3. Chép màu ảnh JPG mẫu cho một thư mục RAW")
@@ -448,7 +469,7 @@ def main(argv=None) -> None:
     x.set_defaults(func=cmd_xem)
 
     a = ap.parse_args(argv)
-    a.func(a)
+    return a.func(a)
 
 
 if __name__ == "__main__":
