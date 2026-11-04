@@ -41,8 +41,9 @@ def _bind_drop(window) -> None:
 def run(selftest: str | None = None) -> None:
     """Mở cửa sổ giao diện. selftest = đường dẫn file: mở cửa sổ, ghi 'GUI OK' khi giao diện
     chạy được rồi tự đóng (dùng để kiểm tra bản build)."""
+    nhatky.setup(__version__)      # bật nhật ký TRƯỚC khi nạp thư viện cửa sổ (nếu sập ở đó vẫn có ghi)
+    nhatky.note("mở giao diện")
     import webview
-    nhatky.setup(__version__)
     api = Api()
     win = webview.create_window(f"Editer Ảnh {__version__}", html=HTML.read_text(encoding="utf-8"),
                                 js_api=api, width=1240, height=860, min_size=(980, 680),
