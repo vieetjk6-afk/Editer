@@ -8,7 +8,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, __file__.rsplit("/tests/", 1)[0])
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
 from editer_anh import color  # noqa: E402
 
 
