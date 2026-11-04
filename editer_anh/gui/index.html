@@ -196,7 +196,7 @@
   .compare { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
   .compare figure { margin: 0; }
   .compare figcaption { color: var(--muted); font-size: 12.5px; margin-bottom: 6px; }
-  .compare img { width: 100%; border-radius: 8px; display: block; background: #111; aspect-ratio: 3 / 2; object-fit: cover; }
+  .compare img { width: 100%; border-radius: 8px; display: block; background: #111; aspect-ratio: 3 / 2; object-fit: contain; }
   .row-btns { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
   .error { border-color: rgba(255, 111, 111, .5); }
   .error h2 { color: var(--bad); }
@@ -613,7 +613,7 @@ function verdict(v) {
   return ["bad", "Còn khác rõ"];
 }
 function metricTiles(rp) {
-  const names = [["da", "Da người"], ["trắng", "Màu trắng"], ["trời", "Trời"], ["cây", "Cây lá"], ["sáng tối", "Sáng tối"],
+  const names = [["da", "Da người"], ["trắng", "Màu trắng"], ["trời", "Trời"], ["cây", "Cây lá"], ["sáng tối", "Điểm đen / trắng"],
                  ["áo", "Màu áo (giữ như gốc)"]];
   return `<div class="metrics">${names.filter(([k]) => rp && rp[k] != null).map(([k, label]) => {
     const [cls, txt] = verdict(rp[k]);
@@ -664,12 +664,15 @@ function psBtns(res, view) {
 }
 function maskLine(mk) {
   if (!mk) return "";
-  const on = [mk.da && "da người", mk.nen && "nền (trời, cây, phông)"].filter(Boolean);
-  return on.length
-    ? `<p class="note-line">Đã chỉnh riêng <b>${on.join("</b> và <b>")}</b> bằng mask AI của Camera Raw — mở Camera Raw, mục <b>Masking</b>
-        (tên “Editer - …”) để xem hoặc kéo lại.</p>`
-    : `<p class="note-line">Camera Raw không áp mask AI khi dựng tự động, nên lần này chỉ chỉnh toàn ảnh (đã giữ màu áo).
-        Muốn chỉnh riêng da: mở ảnh trong Photoshop bên dưới và thêm mask People → Skin.</p>`;
+  const on = [mk.da === true && "da người", mk.nen === true && "nền (trời, cây, phông)"].filter(Boolean);
+  const parts = [];
+  if (on.length) parts.push(`Đã chỉnh riêng <b>${on.join("</b> và <b>")}</b> bằng mask AI của Camera Raw (đã đo trên ảnh Camera Raw dựng thật).`);
+  if (mk.da === "mo_phong") parts.push(`Đã thêm mask <b>“Editer - Da”</b> chỉnh riêng da — tính theo mô phỏng, vì Camera Raw không áp mask AI
+      khi dựng tự động nên các số đo phía trên <b>chưa tính phần này</b>. Mở ảnh trong Photoshop bên dưới để xem: mục <b>Masking</b>
+      (nếu mask có dấu ! thì bấm <b>Update</b>), kéo thanh trượt của mask nếu cần.`);
+  if (!parts.length) parts.push(`Camera Raw không áp mask AI khi dựng tự động, nên lần này chỉ chỉnh toàn ảnh (đã giữ màu áo).
+      Muốn chỉnh riêng da: mở ảnh trong Photoshop bên dưới và thêm mask People → Skin.`);
+  return `<p class="note-line">${parts.join(" ")}</p>`;
 }
 function written(res) {
   if (res.thong_bao) return esc(res.thong_bao);

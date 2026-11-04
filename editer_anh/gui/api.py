@@ -149,7 +149,7 @@ class Api:
         for r in raws[: 6]:
             ph = raw.load(r, 200)
             if ph.preview is not None:
-                anh.append(thumb(ph.preview, 200))
+                anh.append(thumb(ph.upright(), 200))
         return {"ok": True, "path": str(p), "ten": p.name or str(p), "so_raw": len(raws), "so_xmp": co_xmp,
                 "anh": anh}
 
@@ -166,7 +166,7 @@ class Api:
         if not (p.is_file() and p.suffix.lower() in raw.RAW_EXT):
             return {"ok": False, "loi": "Hãy chọn 1 file ảnh RAW (NEF, ARW, CR3...)."}
         ph = raw.load(p, 240)
-        return {"ok": True, "path": str(p), "ten": p.name, "anh": thumb(ph.preview, 240) if ph.preview is not None else None}
+        return {"ok": True, "path": str(p), "ten": p.name, "anh": thumb(ph.upright(), 240) if ph.preview is not None else None}
 
     def phan_loai(self, paths: list[str]) -> dict:
         """Đường dẫn kéo thả vào cửa sổ -> thư mục / ảnh mẫu / RAW."""

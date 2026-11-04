@@ -37,8 +37,16 @@ class Photo:
     flash: float | None = None          # 1 = có nháy flash
     as_shot_temp: float | None = None
     as_shot_tint: float | None = None
-    preview: np.ndarray | None = field(default=None, repr=False)  # uint8 HxWx3 sRGB
+    preview: np.ndarray | None = field(default=None, repr=False)  # uint8 HxWx3 sRGB (CHƯA xoay)
     error: str | None = None
+    flip: int = 0                       # số lần xoay 90° ngược chiều kim đồng hồ để ảnh đứng thẳng
+
+    def upright(self) -> np.ndarray | None:
+        """Ảnh xem trước xoay đúng chiều (ảnh dọc đứng thẳng) — để AI nhận người đúng và hiển thị.
+        (`preview` giữ nguyên chiều cũ vì phong cách đã học được tính trên ảnh chưa xoay.)"""
+        if self.preview is None or not self.flip:
+            return self.preview
+        return np.ascontiguousarray(np.rot90(self.preview, self.flip))
 
 
 def list_raws(folder: str | Path, recursive: bool = True) -> list[Path]:
@@ -137,18 +145,25 @@ def load(path: str | Path, side: int = PREVIEW_SIDE) -> Photo:
     try:
         with rawpy.imread(str(path)) as raw:
             ph.as_shot_temp, ph.as_shot_tint = _as_shot(raw)
+            try:   # chiều chụp (máy dựng dọc): LibRaw flip 3 = 180°, 5 = xoay trái 90°, 6 = xoay phải 90°
+                ph.flip = {3: 2, 5: 1, 6: -1}.get(int(raw.sizes.flip), 0)
+            except Exception:
+                ph.flip = 0
             try:
                 th = raw.extract_thumb()
                 if th.format == rawpy.ThumbFormat.JPEG:
                     with Image.open(io.BytesIO(th.data)) as im:
                         im.draft("RGB", (side * 2, side * 2))
                         ph.preview = _to_small(im, side)
-                        if not ph.model:
-                            try:
-                                ex = im.getexif()
+                        try:
+                            ex = im.getexif()
+                            if not ph.model:
                                 ph.model = ex.get(0x0110) or None
-                            except Exception:
-                                pass
+                            o = ex.get(0x0112)       # ảnh nhúng có hướng riêng thì theo hướng đó
+                            if o in (3, 6, 8):
+                                ph.flip = {3: 2, 6: -1, 8: 1}[o]
+                        except Exception:
+                            pass
                 else:
                     ph.preview = _to_small(Image.fromarray(th.data), side)
             except Exception:
@@ -157,6 +172,8 @@ def load(path: str | Path, side: int = PREVIEW_SIDE) -> Photo:
                 rgb = raw.postprocess(half_size=True, use_camera_wb=True, no_auto_bright=True,
                                       output_bps=8, user_flip=0)
                 ph.preview = _to_small(Image.fromarray(rgb), side)
+            elif ph.flip in (1, -1) and ph.preview.shape[0] > ph.preview.shape[1]:
+                ph.flip = 0          # ảnh nhúng đã được máy xoay đứng sẵn -> không xoay nữa
     except Exception as e:
         ph.error = f"không đọc được RAW: {e}"
         return ph

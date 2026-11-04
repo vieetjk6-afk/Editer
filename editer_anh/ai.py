@@ -344,7 +344,8 @@ class Segmenter:
             raise RuntimeError("không có mô hình phân vùng")
         scene_map = {"sky": L.SKY, "tree": L.PLANT, "grass": L.PLANT, "plant": L.PLANT, "palm": L.PLANT,
                      "field": L.PLANT, "water": L.WATER, "sea": L.WATER, "river": L.WATER, "lake": L.WATER,
-                     "swimming pool": L.WATER, "waterfall": L.WATER, "person": L.PERSON}
+                     "swimming pool": L.WATER, "waterfall": L.WATER, "person": L.PERSON,
+                     "flower": L.FLOWER}
         self.scene_codes = np.array([scene_map.get(_norm_name(n), L.OTHER) for n in names.get("canh", [])], np.uint8)
         skin = {"left-leg", "right-leg", "left-arm", "right-arm"}
         people_codes = []

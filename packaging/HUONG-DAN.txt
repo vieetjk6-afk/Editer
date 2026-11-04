@@ -5,6 +5,20 @@ Bấm đúp  "Editer Anh.exe"  -> cửa sổ giao diện (bấm nút, kéo thả
 Bên trái có 5 mục: Chép màu từ ảnh mẫu · Chỉnh theo phong cách · Học phong cách · Kiểm tra Photoshop
 · Cập nhật. Kết quả hiện ngay trong cửa sổ: độ lệch màu (ΔE) từng vùng + ảnh mẫu / gốc / sau.
 
+MỚI Ở BẢN 0.6 (sửa lỗi "ảnh xỉn màu, da lệch" khi thử ảnh áo dài đỏ + tường hoa)
+ - KHÔNG làm xỉn những màu ảnh mẫu không có: ảnh mẫu toàn đỏ/nâu (rèm, áo dài) thì tool không
+   đụng vào hoa hồng/tím, lá xanh của ảnh RAW. Chỉ chỉnh dải màu có ở CẢ HAI ảnh: da (đỏ/cam/vàng),
+   cây (khi ảnh mẫu có cây), trời (khi ảnh mẫu có trời), áo (để giữ màu).
+ - Độ sáng theo DA (mặt sáng như ảnh mẫu) + điểm đen/trắng; không ép độ sáng chung theo nội dung
+   (phông rèm tối của ảnh mẫu không còn làm tối, xỉn ảnh tường hoa sáng). Ô "Sáng tối" đổi thành
+   "Điểm đen / trắng".
+ - "Trắng/xám" chọn chặt hơn: không lấy hoa phấn hồng, lá tối làm "trắng".
+ - Da: nếu Camera Raw không áp mask AI khi dựng tự động, tool vẫn thêm mask "Editer - Da" tính
+   theo mô phỏng (nhẹ tay, ghi rõ trong kết quả). Mở ảnh trong Camera Raw để xem: mục Masking,
+   mask có dấu ! thì bấm Update. Da lệch quá xa (AI có thể nhận nhầm) thì không tự thêm.
+ - Ảnh chụp dọc được xoay đứng thẳng trước khi AI xem (nhận mặt chuẩn hơn); khung so sánh hiện
+   trọn ảnh.
+
 MỚI Ở BẢN 0.5
  - Chỉnh RIÊNG TỪNG PHẦN: tool thêm mask AI của Camera Raw "Editer - Da" (da mặt + da người)
    và "Editer - Nền" (phông, trời, cây), mỗi mask có Exposure / Nhiệt độ màu / Tint / Saturation

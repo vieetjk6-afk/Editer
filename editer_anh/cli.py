@@ -229,7 +229,11 @@ def _blend(lk: look.Look, shots: list, cams: list, s: float):
 
 
 def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, embs, emb_model):
+    from dataclasses import replace as _replace
+
     from . import ai
+    # Ảnh dọc phải ĐỨNG THẲNG để AI nhận mặt/người đúng (và hiển thị đúng chiều)
+    photos = [_replace(p, preview=p.upright(), flip=0) if p.preview is not None else p for p in photos]
     seg = None if a.khong_ai else ai.Segmenter.get()
     if seg:
         _log(f"AI phân vùng (da, trắng, trời, cây): BẬT ({seg.device}, ~{seg.sec * 1000:.0f} ms/ảnh)")
@@ -274,9 +278,9 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
                 "tep_dai_dien": [photos[i].path for i in info.get("reps", [])]}
     if info.get("mask_ai"):
         mk = info["mask_ai"]
-        _log("Chỉnh riêng từng phần bằng mask AI của Camera Raw: "
-             f"da {'CÓ' if mk['da'] else 'không'}, nền {'CÓ' if mk['nen'] else 'không'}"
-             + ("" if all(mk.values()) else " (Camera Raw không áp mask khi dựng tự động -> chỉ chỉnh toàn ảnh)"))
+        word = {True: "CÓ (đã đo trên Camera Raw)", "mo_phong": "CÓ (theo mô phỏng — Camera Raw không áp mask "
+                "khi dựng tự động nên chưa đo được; mở ảnh trong Camera Raw để xem)", False: "không"}
+        _log(f"Chỉnh riêng từng phần bằng mask AI của Camera Raw: da {word[mk['da']]}, nền {word[mk['nen']]}")
     if "camera_raw" in info:
         _log(f"KẾT QUẢ ĐO TRÊN CAMERA RAW (ảnh đại diện): {look.fmt_report(info['camera_raw'])}")
     else:

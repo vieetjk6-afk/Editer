@@ -1,2 +1,2 @@
 """Editer Ảnh — tự chỉnh màu ảnh RAW theo phong cách riêng hoặc theo một ảnh JPG mẫu."""
-__version__ = "0.5.2"
+__version__ = "0.6.0"

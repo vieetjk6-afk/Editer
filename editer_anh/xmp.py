@@ -317,7 +317,7 @@ def build_preset(name: str, values: dict, curve: list[tuple[int, int]] | None,
     for k, v in head.items():
         desc.set(CRS + k, v)
     for k, v in values.items():
-        if k not in _NOT_IN_PRESET:
+        if k not in _NOT_IN_PRESET and not k.startswith("_"):   # "_local" (mask từng ảnh) không vào preset
             desc.set(CRS + k, fmt_value(k, v))
     if curve:
         desc.set(CRS + "ToneCurveName2012", "Custom")

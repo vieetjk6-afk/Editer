@@ -12,8 +12,11 @@ from editer_anh.look import CLOTHES, FACE, OTHER, PLANT, SKIN, SKY, Look, Shot  
 AS_SHOT = Shot(1e6 / 5500, 0.0, 0.0)
 
 
+FLOWER = getattr(look, "FLOWER", OTHER)
+
+
 def scene(seed: int, h: int = 160, w: int = 240, light_k: float | None = None, ev: float = 0.0,
-          skin_lab=(68, 14, 18), red_dress: bool = False):
+          skin_lab=(68, 14, 18), red_dress: bool = False, flowers: bool = False):
     """Ảnh 'cưới' tổng hợp: tường, trời, cây, váy trắng, vest đen, mặt, tay, vài đồ vật màu
     (+ áo dài đỏ nếu red_dress)."""
     rng = np.random.default_rng(seed)
@@ -47,6 +50,12 @@ def scene(seed: int, h: int = 160, w: int = 240, light_k: float | None = None, e
     for c in [(45, 55, 30), (80, 0, 70), (40, 35, -35)]:        # đồ vật màu
         y, x = rng.integers(sky_h, h - 25), rng.integers(pw, x0 - 25)
         lab[y:y + 22, x:x + 22] = c
+    if flowers:   # tường hoa trang trí: hồng phấn, tím, trắng hồng (như ảnh cưới thật)
+        fy0, fx1 = sky_h, int(w * 0.5)
+        lab[fy0:fy0 + int(h * 0.25), :fx1] = (78, 22, -4)
+        lab[fy0:fy0 + int(h * 0.12), fx1 // 2:fx1] = (58, 30, -34)
+        lab[fy0 + int(h * 0.12):fy0 + int(h * 0.25), fx1 // 3:fx1 // 2] = (88, 9, 2)
+        reg[fy0:fy0 + int(h * 0.25), :fx1] = FLOWER
     lab += rng.normal(0, 1.2, lab.shape)
     rgb = color.lab_to_srgb(lab.reshape(-1, 3))
     lin = color.srgb_to_linear(rgb)
@@ -157,9 +166,11 @@ def test_probe_masks_off():
     lk0, sh0 = look.solve(reps, ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=False)
     best, hist, used = look.refine(reps, lambda i, lk, sh: fake_acr(target, lk, sh, reg, masks_work=False),
                                    lambda im: reg, ref, ref_sel, lk0, sh0, [AS_SHOT], iters=1, log=lambda m: None)
-    assert used == (False, False), used
-    assert not np.any(best[0].skin_loc) and not np.any(best[0].bg_loc), "không được ghi chỉnh cục bộ vô tác dụng"
-    print("[mask AI không hoạt động] nhận ra và tắt chỉnh cục bộ: OK")
+    assert used[1] is False and used[0] in (False, "mo_phong"), used
+    assert not np.any(best[0].bg_loc), "nền: không đo được thì không ghi"
+    if used[0] == "mo_phong":   # da: chỉ ghi phần CÒN LỆCH ước lượng theo mô phỏng, nhẹ tay
+        assert np.all(np.abs(best[0].skin_loc) <= [0.6, 25, 25, 30]), best[0].skin_loc
+    print(f"[mask AI không hoạt động] nhận ra; da: {used[0]} {np.round(best[0].skin_loc, 2)}: OK")
 
 
 def test_keep_red_dress():
@@ -228,6 +239,40 @@ def test_orange_reference_whites():
     assert np.hypot(*ab) < 8.0 and k_new < 9000, "váy trắng bị nhuộm cam theo tường"
 
 
+def test_flowers_keep_color():
+    """Lỗi thật đã gặp (bản 0.5.2, ảnh áo dài đỏ): ảnh mẫu toàn đỏ/nâu (rèm đỏ, không có hoa lá)
+    -> tool làm XỈN tường hoa hồng/tím và lá xanh của ảnh RAW (thành xám). Ảnh mẫu không cho biết
+    gì về hoa/lá thì không được đụng tới màu của chúng."""
+    ref_img, rreg = scene(12, skin_lab=(70, 20, 22))
+    lab = color.srgb_to_lab(ref_img.reshape(-1, 3) / 255.0).reshape(ref_img.shape)
+    lab[: int(ref_img.shape[0] * 0.5), :] = (22, 40, 20)            # rèm đỏ sẫm che nửa trên
+    lab[(rreg == PLANT)] = (30, 30, 18)                              # không có cây: gỗ / rèm
+    rreg = rreg.copy()
+    rreg[: int(ref_img.shape[0] * 0.5), :] = OTHER
+    rreg[rreg == PLANT] = OTHER
+    ref_img = (color.lab_to_srgb(lab.reshape(-1, 3)).reshape(ref_img.shape) * 255 + 0.5).astype(np.uint8)
+    _, _, ref_sel, ref = stats_of(ref_img, rreg, ref=True)
+    target, reg = scene(16, light_k=6200, red_dress=True, flowers=True)
+    s, idx, sel, m0 = stats_of(target, reg)
+    keep = {"clothes": m0["clothes"]} if "clothes" in m0 else None
+    rep_ = look.Rep(s.px, sel, Look(), AS_SHOT, s.reg, keep)
+    lk, shots = look.solve([rep_], ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=False)
+    out = render(target, lk, shots[0])
+    lab0 = color.srgb_to_lab(target.reshape(-1, 3) / 255.0)
+    lab1 = color.srgb_to_lab(out.reshape(-1, 3) / 255.0)
+    chroma = {}
+    for name, code in (("hoa", FLOWER), ("lá", PLANT)):
+        msk = (reg == code).reshape(-1)
+        c0 = np.hypot(*lab0[msk, 1:].T).mean()
+        c1 = np.hypot(*lab1[msk, 1:].T).mean()
+        chroma[name] = c1 / c0
+    m = look.measure(look.sample_at(out, idx, s).px, sel)
+    rp = look.report([m], ref, [keep] if keep else None)
+    print(f"[tường hoa] độ đậm màu sau/trước: hoa {chroma['hoa']:.2f}, lá {chroma['lá']:.2f}; {look.fmt_report(rp)}")
+    assert chroma["hoa"] > 0.85 and chroma["lá"] > 0.85, f"hoa/lá bị làm xỉn: {chroma}"
+    assert rp["da"] < 3.0, rp
+
+
 def test_xmp_roundtrip(tmp: Path):
     vals, curve = look.xmp_values(TRUE_LOOK, TRUE_SHOT)
     p = tmp / "rt.xmp"
@@ -266,6 +311,7 @@ if __name__ == "__main__":
     test_keep_red_dress()
     test_dark_red_curtain()
     test_orange_reference_whites()
+    test_flowers_keep_color()
     with tempfile.TemporaryDirectory() as d:
         test_xmp_roundtrip(Path(d))
     test_transfer()

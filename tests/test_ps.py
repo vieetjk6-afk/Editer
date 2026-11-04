@@ -103,8 +103,12 @@ def test_cli_with_fake_photoshop(tmp: Path):
     assert not psmod.workdir_for(folder).exists(), "phải xoá thư mục tạm .editer-tam"
     assert any("KẾT QUẢ ĐO TRÊN CAMERA RAW" in m for m in logs)
     assert any(app.seen_local), "phải thử mask AI (ghi chỉnh cục bộ vào .xmp dựng thử)"
-    assert any("mask AI" in m and "chỉ chỉnh toàn ảnh" in m for m in logs), logs
-    assert not any(xmp.read_local(o) for o in out), "Camera Raw không áp mask -> không được ghi chỉnh cục bộ"
+    mlog = [m for m in logs if m.startswith("Chỉnh riêng từng phần bằng mask AI")]
+    assert mlog and "nền không" in mlog[0], logs
+    locs = [xmp.read_local(o) for o in out]
+    assert not any("Editer - Nền" in lc for lc in locs), "nền: Camera Raw không áp mask -> không ghi"
+    if any("Editer - Da" in lc for lc in locs):   # da: chỉ khi đã báo rõ là "theo mô phỏng"
+        assert "theo mô phỏng" in mlog[0], mlog
     crs = xmp.read_settings(out[0])["crs"]
     assert "SplitToningHighlightHue" in crs and crs["ToneCurveName2012"] == "Custom"
     preset = xmp.preset_dir() / "Editer - thử nghiệm.xmp"

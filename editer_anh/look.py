@@ -28,18 +28,19 @@ import numpy as np
 from . import color
 
 # ------------------------------------------------------------------ vùng ảnh
-OTHER, SKIN, HAIR, CLOTHES, SKY, PLANT, WATER, PERSON, FACE = range(9)
+OTHER, SKIN, HAIR, CLOTHES, SKY, PLANT, WATER, PERSON, FACE, FLOWER = range(10)
 REGION_VI = {SKIN: "da", HAIR: "tóc", CLOTHES: "quần áo", SKY: "trời", PLANT: "cây",
-             WATER: "nước", PERSON: "người", FACE: "mặt"}
+             WATER: "nước", PERSON: "người", FACE: "mặt", FLOWER: "hoa"}
 SKIN_SET = (FACE, SKIN)                       # vùng mask "Da" của Camera Raw (mặt + da người)
-BG_SET = (OTHER, SKY, PLANT, WATER)           # vùng mask "Nền" (Background) của Camera Raw
+BG_SET = (OTHER, SKY, PLANT, WATER, FLOWER)   # vùng mask "Nền" (Background) của Camera Raw
+NEUTRAL_SET = (OTHER, CLOTHES, PERSON)        # nơi có thể có "trắng/xám" (không lấy hoa, lá, trời, da, tóc)
 
 CURVE_X = np.array([0.0, 48.0, 96.0, 160.0, 208.0, 255.0])
 BANDS = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"]
 CENTERS = np.array([0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 270.0, 300.0])
 _NEXT = (np.roll(CENTERS, -1) - CENTERS) % 360      # khoảng tới dải kế tiếp
 _PREV = (CENTERS - np.roll(CENTERS, 1)) % 360       # khoảng tới dải trước
-TONE_Q = [10, 50, 90]
+TONE_Q = [2, 50, 98]      # điểm đen, giữa, điểm trắng
 
 
 @dataclass(frozen=True)
@@ -359,7 +360,6 @@ class Sel:
     sky: np.ndarray | None = None
     plant: np.ndarray | None = None
     shadow: np.ndarray | None = None
-    high: np.ndarray | None = None
     clothes: np.ndarray | None = None
     frac: dict = field(default_factory=dict)
 
@@ -391,15 +391,18 @@ def _neutral(L, ab, C, cand, cast_max: float):
         cast = cast * (cast_max / cc)
     Cc = np.hypot(*(ab - cast).T)
     p20 = float(np.percentile(Cc[cand], 20))
-    for tmax in (8.0, 12.0):
+    need = max(50, int(0.01 * len(L)))                 # ít nhất ~1% ảnh
+    for tmax in (6.0, 8.0):
         idx = np.flatnonzero(cand & (Cc <= min(tmax, max(4.0, p20))))
-        if len(idx) >= 50:
+        if len(idx) >= need:
             return cast, Cc, idx
     return cast, Cc, None
 
 
-def select(s: Sample, ref: bool = False) -> Sel:
-    """Chọn điểm để đo. ref=True: ảnh mẫu (đã chỉnh xong) — "trắng" không được đậm màu."""
+def select(s: Sample, ref: bool = False, loose: bool = False) -> Sel:
+    """Chọn điểm để đo. ref=True: ảnh mẫu (đã chỉnh xong) — "trắng" không được đậm màu.
+    loose=True: ảnh Camera Raw dựng ở lượt đầu (có thể đang lệch xa, da quá đậm/nhạt): vẫn nhận
+    vùng mặt/da của AI, chỉ loại điểm quá vô lý."""
     lab = color.srgb_to_lab(s.px)
     L, ab = lab[:, 0], lab[:, 1:]
     C = np.hypot(ab[:, 0], ab[:, 1])
@@ -412,7 +415,7 @@ def select(s: Sample, ref: bool = False) -> Sel:
         sel.frac[name] = float(np.mean(reg[s.glob] == code)) if len(s.glob) else 0.0
     valid = (L > 3) & (L < 99)
     # Ám màu chung (để tìm điểm "trắng/xám" kể cả khi ảnh đang ám vàng)
-    cand = valid & np.isin(reg, [OTHER, CLOTHES, PERSON]) & (L > 30) & (L < 97)
+    cand = valid & np.isin(reg, NEUTRAL_SET) & (L > 30) & (L < 97)
     cast, Cc = np.zeros(2), C                          # Cc: độ đậm màu sau khi bỏ ám chung
     if cand.sum() >= 50:
         cast, Cc, sel.neutral = _neutral(L, ab, C, cand, CAST_MAX_REF if ref else CAST_MAX_RAW)
@@ -421,7 +424,10 @@ def select(s: Sample, ref: bool = False) -> Sel:
             Cc = np.hypot(*(ab - cast).T)
     # DA: ưu tiên MẶT; chỉ nhận điểm có màu giống da (loại áo/hoa đỏ bị nhận nhầm)
     hue = np.degrees(np.arctan2(ab[:, 1] - cast[1], ab[:, 0] - cast[0]))
-    plaus = (L > 30) & (L < 95) & (Cc > 4) & (Cc < 55) & (hue > 5) & (hue < 95)
+    if loose:
+        plaus = (L > 20) & (L < 97) & (Cc < 90) & (hue > -30) & (hue < 120)
+    else:
+        plaus = (L > 30) & (L < 95) & (Cc > 4) & (Cc < 55) & (hue > 5) & (hue < 95)
     for code, need in ((FACE, 0.0015), (SKIN, 0.003)):
         if sel.frac["face" if code == FACE else "skin"] < need:
             continue
@@ -434,14 +440,11 @@ def select(s: Sample, ref: bool = False) -> Sel:
         sel.sky = _ok(np.flatnonzero((reg == SKY) & (L > 35) & (L < 99)), 60)
     if sel.frac["plant"] >= MIN_AREA:
         sel.plant = _ok(np.flatnonzero((reg == PLANT) & valid), 60)
-    # Ám màu vùng TỐI / SÁNG: chỉ trên điểm gần XÁM (rèm đỏ, áo màu không được tính)
-    grey = g & valid & ~np.isin(reg, [FACE, SKIN, HAIR]) & (Cc <= 12)
-    gs = np.flatnonzero(grey & (L < 45))
-    if len(gs) >= 50:
+    # Ám màu vùng TỐI: chỉ trên điểm tối gần như KHÔNG MÀU (vest đen, phông tối) — không lấy
+    # rèm đỏ, lá cây tối, tóc nhuộm. Phải đủ nhiều (>= 1,5% ảnh) mới tin.
+    gs = np.flatnonzero(g & valid & np.isin(reg, NEUTRAL_SET) & (L < 40) & (C <= 8))
+    if len(gs) >= max(50, int(0.015 * len(s.glob))):
         sel.shadow = gs[L[gs] <= np.percentile(L[gs], 50)]
-    gh = np.flatnonzero(grey & (reg != SKY) & (L > 60) & (L < 98.5))
-    if len(gh) >= 50:
-        sel.high = gh[L[gh] >= np.percentile(L[gh], 50)]
     # ÁO có màu (đỏ, hồng...): giữ như ảnh gốc
     if sel.frac["clothes"] >= 0.02:
         sel.clothes = _ok(np.flatnonzero((reg == CLOTHES) & valid & (Cc > 15)), 80)
@@ -460,16 +463,16 @@ def measure(px: np.ndarray, sel: Sel) -> dict:
         idx = getattr(sel, name)
         if idx is not None:
             m[name] = lab[idx].mean(axis=0)
-    for name in ("shadow", "high"):
-        idx = getattr(sel, name)
-        if idx is not None:
-            m[name] = lab[idx, 1:].mean(axis=0)
+    if sel.shadow is not None:
+        m["shadow"] = lab[sel.shadow, 1:].mean(axis=0)
     return m
 
 
-_W = {"tone": np.full(3, 0.35), "neutral": np.array([3.0, 3.0]), "skin": np.array([1.5, 3.0, 3.0]),
+# Độ sáng chung (giữa) phụ thuộc NỘI DUNG (phông rèm tối vs tường hoa sáng) -> gần như không ép;
+# độ sáng do DA quyết định (mặt sáng như ảnh mẫu), điểm đen/trắng là "chất" của look.
+_W = {"tone": np.array([0.3, 0.08, 0.12]), "neutral": np.array([3.0, 3.0]), "skin": np.array([1.5, 3.0, 3.0]),
       "sky": np.array([1.2, 1.5, 1.5]), "plant": np.array([1.0, 1.5, 1.5]),
-      "shadow": np.array([1.0, 1.0]), "high": np.array([1.0, 1.0]), "clothes": np.array([1.0, 2.0, 2.0])}
+      "shadow": np.array([0.6, 0.6]), "clothes": np.array([1.0, 2.0, 2.0])}
 KEEP_KEYS = ("clothes",)   # số đo phải GIỮ như ảnh gốc (không khớp theo ảnh mẫu)
 
 
@@ -494,7 +497,7 @@ def report(stats: list[dict], ref: dict, keeps: list | None = None) -> dict:
     v = [float(np.hypot(*(m["neutral"] - ref["neutral"]))) for m in stats if "neutral" in m and "neutral" in ref]
     if v:
         out["trắng"] = float(np.mean(v))
-    out["sáng tối"] = float(np.mean([np.mean(np.abs(m["tone"] - ref["tone"])) for m in stats]))
+    out["sáng tối"] = float(np.mean([np.mean(np.abs(m["tone"][[0, 2]] - ref["tone"][[0, 2]])) for m in stats]))
     if keeps:
         v = [float(color.delta_e2000(m["clothes"], kp["clothes"])) for m, kp in zip(stats, keeps)
              if "clothes" in m and kp and "clothes" in kp]
@@ -508,7 +511,7 @@ def fmt_report(r: dict) -> str:
     for k in ("da", "trắng", "trời", "cây"):
         if k in r:
             parts.append(f"{k} ΔE {r[k]:.1f}")
-    parts.append(f"sáng tối ΔL {r['sáng tối']:.1f}")
+    parts.append(f"điểm đen/trắng ΔL {r['sáng tối']:.1f}")
     if "áo" in r:
         parts.append(f"màu áo lệch gốc ΔE {r['áo']:.1f}")
     return ", ".join(parts)
@@ -578,7 +581,7 @@ def _regular(lk: Look, shots: list[Shot], priors: list[Shot], reg: float = REG) 
     hoàn hảo trên mô phỏng nhưng hỏng trên Camera Raw thật)."""
     loc_sc = np.array([0.8, 25, 25, 30])
     r = [(lk.curve - CURVE_X) / 25 * 0.7, lk.hue / 15, lk.sat / 25, lk.lum / 20,
-         lk.grade / 8, [lk.saturation / 20, lk.vibrance / 20],
+         lk.grade / 8, [lk.saturation / 10, lk.vibrance / 10],
          np.diff(lk.curve - CURVE_X, 2) / 20 * 0.7,               # curve mượt, không gợn sóng
          lk.skin_loc / loc_sc, lk.bg_loc / loc_sc]
     r = [np.atleast_1d(np.asarray(a, float)) * reg for a in r]
@@ -596,17 +599,43 @@ def _with_offset(m: dict, off: dict | None) -> dict:
     return {key: m[key] + off[key] for key in off if key in m}
 
 
+def _band_of(lab) -> int:
+    """Dải màu HSL (0..7) gần nhất với một màu Lab."""
+    rgb = np.clip(color.lab_to_srgb(np.asarray(lab, float)[None]), 0, 1)
+    h = float(color.rgb_to_hsv(rgb)[0, 0])
+    return int(np.argmin(np.abs((CENTERS - h + 180) % 360 - 180)))
+
+
+def bands_ok(reps: list[Rep], ref: dict) -> np.ndarray:
+    """Dải màu HSL được phép chỉnh = dải có BẰNG CHỨNG ở cả ảnh mẫu lẫn ảnh RAW:
+    da -> đỏ/cam/vàng; cây -> vàng/xanh lá/xanh ngọc; trời -> xanh ngọc/xanh dương;
+    áo -> dải màu của áo (để giữ màu). Dải khác (hoa tím/hồng, lá khi ảnh mẫu không có cây...)
+    KHÔNG đụng tới: ảnh mẫu không cho biết gì về chúng, chỉnh vào chỉ làm xỉn màu."""
+    ok = np.zeros(8, bool)
+    for r in reps:
+        if r.sel.skin is not None and "skin" in ref:
+            ok[[0, 1, 2]] = True
+        if r.sel.plant is not None and "plant" in ref:
+            ok[[2, 3, 4]] = True
+        if r.sel.sky is not None and "sky" in ref:
+            ok[[4, 5]] = True
+        if r.keep and "clothes" in r.keep:
+            ok[_band_of(r.keep["clothes"])] = True
+    return ok
+
+
 def solve(reps: list[Rep], ref: dict, ref_sel: Sel, look0: Look, shots0: list[Shot],
           priors: list[Shot], k: Consts = DEFAULT, fix_look: bool = False,
           max_nfev: int = 50, offsets: list[dict] | None = None, reg: float = REG,
           prox: tuple | None = None, gmap: tuple | None = None,
-          use_local=(True, True)) -> tuple[Look, list[Shot]]:
+          use_local=(True, True), only_skin: bool = False) -> tuple[Look, list[Shot]]:
     """Tìm thông số để số đo (mô phỏng [+ phần bù]) khớp ảnh mẫu.
     offsets: phần chênh "Camera Raw thật - mô phỏng" của từng ảnh (từ vòng kiểm tra).
     prox = (x_ref, mu): "vùng tin cậy" — phạt đi xa x_ref (mu càng lớn bước càng ngắn).
     gmap = (x_goc, g): Camera Raw mạnh/yếu hơn mô phỏng g lần theo từng nhóm thanh trượt:
     giá trị thật x tương đương giá trị mô phỏng x_goc + g * (x - x_goc).
-    use_local = (da, nền): có dùng chỉnh cục bộ bằng mask không (tắt khi Camera Raw không áp mask)."""
+    use_local = (da, nền): có dùng chỉnh cục bộ bằng mask không (tắt khi Camera Raw không áp mask).
+    only_skin: chỉ tìm chỉnh cục bộ vùng da (mọi thứ khác giữ nguyên)."""
     from scipy.optimize import least_squares
     from scipy.sparse import lil_matrix
 
@@ -622,6 +651,14 @@ def solve(reps: list[Rep], ref: dict, ref_sel: Sel, look0: Look, shots0: list[Sh
         if not on:   # khoá chỉnh cục bộ vùng này ở 0
             x0[sl] = 0.0
             lo[sl], hi[sl] = -1e-6, 1e-6
+    for b in np.flatnonzero(~bands_ok(reps, ref)):   # dải màu không có bằng chứng: không chỉnh
+        for base in (6, 14, 22):                       # hue, sat, lum của dải b
+            x0[base + b] = 0.0
+            lo[base + b], hi[base + b] = -1e-6, 1e-6
+    if only_skin:
+        free = np.zeros(len(x0), bool)
+        free[38:42] = True
+        lo[~free], hi[~free] = x0[~free] - 1e-6, x0[~free] + 1e-6
     x0 = np.clip(x0, lo, hi)
     lay = _layout(shots0)
 
@@ -894,7 +931,7 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
     best, mu = None, 0.6
     gidx, gains, seen = _group_index(tmpl), np.ones(len(GROUPS)), []
     keeps = [r.keep for r in reps]
-    use_local = (False, False)
+    use_local, probed = (False, False), False
 
     for it in range(iters + 1):
         lk_t, sh_t = _unpack(x_try, tmpl)
@@ -905,7 +942,7 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
         for i, img in enumerate(imgs):
             if len(bases) <= i:
                 s, idx = make_sample(img, segment(img) if segment else None, seed=i)
-                bases.append((idx, s, select(s)))
+                bases.append((idx, s, select(s, loose=True)))
             idx, s0, sel = bases[i]
             act.append(measure(sample_at(img, idx, s0).px, sel))
         sels = [b[2] for b in bases]
@@ -929,7 +966,7 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
         if it == iters or best["score"] < tol:
             break
         if it == 0 and probe_local and render is not None:
-            use_local = _probe_masks(render, bases[0], imgs[0], lk_t, sh_t[0], log)
+            use_local, probed = _probe_masks(render, bases[0], imgs[0], lk_t, sh_t[0], log), True
         ident = _ident(tmpl, priors)
         if len(seen) >= 2:   # học độ mạnh thật của từng nhóm thanh trượt
             pairs = [((xa, ra), (xb, rb)) for (xa, ra), (xb, rb) in zip(seen[:-1], seen[1:])]
@@ -952,7 +989,33 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
         lk_b.skin_loc = np.zeros(4)
     if not use_local[1]:
         lk_b.bg_loc = np.zeros(4)
-    return (lk_b, sh_b, best["score"], best["report"], best["imgs"]), history, use_local
+    state = list(use_local)
+    if probed and not use_local[0] and best["report"].get("da", 99) > 12:
+        log("      da còn lệch quá xa (có thể AI nhận nhầm da) -> không tự thêm mask da, nên cân lại bằng tay")
+    elif probed and not use_local[0]:
+        fix = _skin_residual(bases, best["imgs"], lk_b, sh_b, ref, ref_sel, keeps, k)
+        if fix is not None and np.any(np.abs(fix) > [0.03, 1.0, 1.0, 1.0]):
+            lk_b.skin_loc = fix
+            state[0] = "mo_phong"
+            log(f"      chỉnh riêng da theo mô phỏng (chưa đo được trên Camera Raw): Exposure {fix[0]:+.2f}, "
+                f"Nhiệt độ {fix[1]:+.0f}, Tint {fix[2]:+.0f}, Saturation {fix[3]:+.0f}")
+    return (lk_b, sh_b, best["score"], best["report"], best["imgs"]), history, tuple(state)
+
+
+def _skin_residual(bases, imgs, lk: Look, shots: list[Shot], ref: dict, ref_sel: Sel, keeps,
+                   k: Consts) -> np.ndarray | None:
+    """Camera Raw không áp mask khi dựng TỰ ĐỘNG nên không đo được chỉnh riêng da. Ước lượng
+    bằng mô phỏng phần da CÒN LỆCH trên chính ảnh Camera Raw dựng thật (giảm 20% cho an toàn).
+    Khi bạn mở ảnh trong Camera Raw, mask được tính và áp."""
+    if "skin" not in ref:
+        return None
+    reps2 = [Rep(sample_at(img, idx, s0).px, sel, lk, sh, s0.reg, kp)
+             for (idx, s0, sel), img, sh, kp in zip(bases, imgs, shots, keeps) if sel.skin is not None]
+    if not reps2:
+        return None
+    shots2 = [r.cur_shot for r in reps2]
+    lk2, _ = solve(reps2, ref, ref_sel, lk, shots2, shots2, k, use_local=(True, False), only_skin=True)
+    return np.clip((lk2.skin_loc - lk.skin_loc) * 0.8, [-0.6, -25, -25, -30], [0.6, 25, 25, 30])
 
 
 def _probe_masks(render, base, img0, lk: Look, sh: Shot, log) -> tuple[bool, bool]:

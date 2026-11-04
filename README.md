@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.5)
+## Editer Ảnh (bản 0.6)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
@@ -49,6 +49,14 @@ Có 3 chức năng:
      chroma 12 — trước đây ảnh mẫu nhiều gỗ cam cho "trắng" a*=+21, b*=+35); ám màu vùng
      tối/sáng chỉ đo trên điểm xám thật (không lẫn rèm đỏ/áo màu), bỏ vùng < 3% ảnh. Màu
      áo được **giữ như ảnh gốc** (so với gốc, không so với ảnh mẫu).
+   - **0.6 — không làm xỉn màu ngoài vùng có bằng chứng:** HSL chỉ chỉnh dải có ở cả ảnh mẫu lẫn
+     ảnh RAW (da → đỏ/cam/vàng, cây → vàng/xanh lá/xanh ngọc, trời → xanh ngọc/xanh dương, áo →
+     dải của áo); Saturation/Vibrance chung bị phạt gấp đôi. Tông: điểm đen P2 / giữa P50 / điểm
+     trắng P98 với trọng số 0,3 / 0,08 / 0,12 (độ sáng do da quyết định). "Trắng": Cc ≤ 6 (nới 8),
+     ≥ 1% ảnh, không lấy hoa (ADE20K "flower" → vùng HOA), lá, trời, da, tóc. Bỏ "ám vùng sáng";
+     "ám vùng tối" chỉ trên điểm tối gần như không màu (C ≤ 8, ≥ 1,5% ảnh). Mask da không đo được
+     trên Camera Raw → ước lượng phần da còn lệch bằng mô phỏng (× 0,8, có giới hạn), ghi
+     "theo mô phỏng". Ảnh xem trước được xoay theo hướng chụp (LibRaw flip) trước khi phân vùng.
    - **0.5 — giao diện:** nút mở ảnh đại diện / 60 ảnh đầu trong Photoshop (Camera Raw) để cân
      lại; mục **Cập nhật** tải bản mới từ Releases (repo riêng tư → cần token chỉ-đọc, lưu ở
      `%USERPROFILE%\Editer\cau-hinh.json`). Dữ liệu đã học nằm ở `%USERPROFILE%\Editer`
