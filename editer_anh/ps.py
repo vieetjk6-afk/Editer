@@ -56,9 +56,13 @@ class Photoshop:
             if sys.platform != "win32":
                 raise RuntimeError("chỉ dùng được trên Windows")
             try:
+                import pythoncom
                 import win32com.client  # pywin32
             except ImportError as e:
                 raise RuntimeError(f"thiếu thư viện pywin32: {e}") from e
+            # Giao diện chạy việc ở luồng nền: luồng nào dùng COM (điều khiển Photoshop) cũng
+            # phải khởi tạo COM trước, không thì lỗi "CoInitialize has not been called".
+            pythoncom.CoInitialize()
             app = win32com.client.Dispatch("Photoshop.Application")
             try:
                 app.DisplayDialogs = 3       # không hiện hộp thoại
