@@ -21,6 +21,10 @@ jobs:
     env:
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
+    defaults:
+      run:
+        # Dừng ngay khi BẤT KỲ lệnh nào lỗi (mặc định PowerShell chỉ xét lệnh cuối)
+        shell: pwsh -NoProfile -Command "$ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true; . '{0}'"
     steps:
       - uses: actions/checkout@v4
 

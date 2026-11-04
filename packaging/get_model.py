@@ -55,18 +55,46 @@ def main(out: str) -> None:
     in_names = [i.name for i in sess.get_inputs()]
     outs = [o.name for o in sess.get_outputs()]
     out_name = "text_embeds" if "text_embeds" in outs else outs[0]
-    embs = []
-    for _, _, prompt in LABELS:
+    print("text model: vào", in_names, "ra", outs, "-> dùng", out_name, flush=True)
+
+    def text_emb(prompt: str) -> np.ndarray:
         ids = np.array([tk.encode(prompt).ids], dtype=np.int64)
         feed = {"input_ids": ids}
         if "attention_mask" in in_names:
             feed["attention_mask"] = np.ones_like(ids)
-        e = sess.run([out_name], feed)[0].reshape(-1)
-        embs.append(e / np.linalg.norm(e))
+        e = sess.run([out_name], feed)[0]
+        if e.ndim == 3:  # last_hidden_state: lấy vị trí token kết thúc (EOS)
+            e = e[0, int(np.argmax(ids[0]))]
+        e = e.reshape(-1)
+        return e / np.linalg.norm(e)
+
+    print("token mẫu:", tk.encode("a photo of a cat").ids, flush=True)
+    embs = [text_emb(p) for _, _, p in LABELS]
     np.savez(out / LABELS_NAME, keys=np.array([k for k, _, _ in LABELS]), emb=np.array(embs, np.float32))
     shutil.copy2(vis, out / MODEL_NAME)
+    _sanity(out, text_emb)
     shutil.rmtree(cache)
     print("xong:", out / MODEL_NAME, f"{(out / MODEL_NAME).stat().st_size / 1e6:.0f}MB", flush=True)
+
+
+def _sanity(out: Path, text_emb) -> None:
+    """Kiểm tra cơ bản: ảnh con mèo phải giống câu 'con mèo' nhất."""
+    try:
+        import skimage.data as d
+    except ImportError:
+        return
+    from editer_anh.ai import Embedder
+    Embedder._inst = None
+    e = Embedder(out)
+    img = e.embed([d.chelsea(), d.astronaut()])
+    prompts = ["a photo of a cat", "a photo of a dog", "a photo of a car", "a photo of a woman", "a photo of a coffee cup"]
+    T = np.array([text_emb(p) for p in prompts])
+    sc = img @ T.T
+    for name, row in zip(("chelsea (mèo)", "astronaut (người)"), sc):
+        print(name, {p: round(float(v), 3) for p, v in zip(prompts, row)}, flush=True)
+    assert int(np.argmax(sc[0])) == 0, "CLIP lỗi: ảnh mèo không khớp 'a photo of a cat'"
+    assert int(np.argmax(sc[1])) == 3, "CLIP lỗi: ảnh người không khớp 'a photo of a woman'"
+    print("kiểm tra CLIP: OK", flush=True)
 
 
 if __name__ == "__main__":
