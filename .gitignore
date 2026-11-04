@@ -1,0 +1,22 @@
+# Không đưa ảnh/video gốc của khách lên git
+*.nef
+*.NEF
+*.arw
+*.ARW
+*.cr3
+*.CR3
+*.cr2
+*.dng
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.mts
+*.MTS
+
+# Python / build
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
