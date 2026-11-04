@@ -53,9 +53,18 @@ AN TOÀN
  - Bảng chi tiết từng ảnh: editer-bao-cao.csv trong thư mục ảnh.
 
 KIỂM TRA KẾT NỐI PHOTOSHOP
- - Mở cửa sổ dòng lệnh ở thư mục tool, chạy:
-     editer-anh.exe kiem-tra-photoshop "D:\anh\IMG_0001.NEF"
-   Photoshop sẽ mở thử 1 ảnh bằng Camera Raw rồi đóng lại.
+ - Bấm đúp editer-anh.exe, chọn 4, kéo thả 1 file RAW thật vào cửa sổ, Enter.
+   Photoshop sẽ tự mở ảnh đó bằng Camera Raw rồi đóng lại, tool báo "OK".
+
+NẾU CỬA SỔ TỰ TẮT / CÓ LỖI
+ - Mọi thứ hiện trên màn hình (kể cả lỗi làm chương trình sập) được ghi vào:
+     C:\Users\<tên bạn>\Editer\nhat-ky.txt
+   Gửi file này là biết lỗi ở đâu.
+ - Muốn chạy để cửa sổ KHÔNG tự tắt: mở thư mục tool, gõ "powershell" vào thanh địa chỉ
+   rồi Enter, sau đó gõ (chú ý dấu .\ ở đầu — PowerShell bắt buộc):
+     .\editer-anh.exe
+ - Nếu chương trình sập lúc chạy AI trên card đồ hoạ, lần sau tool TỰ chuyển sang CPU.
+   Muốn ép chạy CPU ngay:  .\editer-anh.exe --cpu
 
 LƯU Ý CAMERA RAW
  - Trong Camera Raw > Preferences > File Handling, chọn

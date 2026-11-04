@@ -127,6 +127,8 @@ def _exif(path: Path, ph: Photo) -> None:
 def load(path: str | Path, side: int = PREVIEW_SIDE) -> Photo:
     path = Path(path)
     ph = Photo(path=str(path))
+    from . import nhatky
+    nhatky.note(f"đọc {path.name}")
     try:
         import rawpy
     except ImportError as e:  # pragma: no cover

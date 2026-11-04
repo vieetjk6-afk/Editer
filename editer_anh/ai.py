@@ -73,9 +73,30 @@ def model_dirs() -> list[Path]:
 
 
 # ------------------------------------------------------------------ chạy mô hình (CPU / card đồ hoạ)
+GPU_TRYING = Path.home() / "Editer" / "gpu-dang-thu.txt"   # có file này = đang thử card
+GPU_OFF = Path.home() / "Editer" / "gpu-tat.txt"           # có file này = không dùng card nữa
+_gpu_notice = [False]
+
+
 def _gpu_providers():
-    """Card đồ hoạ: DirectML (mọi card trên Windows: NVIDIA/AMD/Intel) hoặc CUDA."""
+    """Card đồ hoạ: DirectML (mọi card trên Windows: NVIDIA/AMD/Intel) hoặc CUDA.
+
+    An toàn: trước khi thử card, tool đặt file "đang thử"; thử xong thì xoá. Nếu lần chạy
+    trước bị SẬP giữa chừng (driver/thư viện lỗi làm cửa sổ tắt ngay), file còn đó ->
+    lần này tự chuyển sang CPU và nhớ luôn (file gpu-tat.txt), không sập lại nữa."""
     if os.environ.get("EDITER_CPU"):
+        return None
+    if GPU_TRYING.exists():
+        try:
+            GPU_TRYING.replace(GPU_OFF)
+        except OSError:
+            pass
+    if GPU_OFF.exists():
+        if not _gpu_notice[0]:
+            _gpu_notice[0] = True
+            print("(Lần trước chương trình bị dừng đột ngột lúc thử chạy AI trên card đồ hoạ, nên giờ AI "
+                  f"chạy bằng CPU — kết quả như nhau, chỉ chậm hơn. Muốn thử lại card: xoá file {GPU_OFF})",
+                  flush=True)
         return None
     import onnxruntime as ort
     avail = ort.get_available_providers()
@@ -101,20 +122,34 @@ class _Model:
             cands.append(("card đồ hoạ", fp16 if fp16.exists() else int8, gpu))
         cands.append(("CPU", int8 if int8.exists() else fp16, ["CPUExecutionProvider"]))
         best, errors = None, []
+        from . import nhatky
         for label, path, provs in cands:
             if not path.exists():
                 continue
+            gpu_try = label != "CPU"
+            nhatky.note(f"khởi động mô hình {name} trên {label} ({path.name})")
             try:
+                if gpu_try:
+                    GPU_TRYING.parent.mkdir(parents=True, exist_ok=True)
+                    GPU_TRYING.write_text(f"{name}\n", encoding="utf-8")
                 opts = ort.SessionOptions()
                 opts.log_severity_level = 3
-                if label != "CPU":   # DirectML cần 2 tuỳ chọn này
+                if gpu_try:   # DirectML cần 2 tuỳ chọn này
                     opts.enable_mem_pattern = False
                     opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
                 sess = ort.InferenceSession(str(path), opts, providers=provs)
                 sec = self._bench(sess, shape)
             except Exception as e:
                 errors.append(f"{label}: {e}")
+                nhatky.note(f"  {label} lỗi: {e}")
                 continue
+            finally:
+                if gpu_try:
+                    try:
+                        GPU_TRYING.unlink()
+                    except OSError:
+                        pass
+            nhatky.note(f"  {label}: {sec * 1000:.0f} ms/lần")
             if best is None or sec < best[2]:
                 best = (label, sess, sec)
         if best is None:

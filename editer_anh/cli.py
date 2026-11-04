@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import __version__, color, look, raw, style, xmp
+from . import __version__, color, look, nhatky, raw, style, xmp
 from . import ps as psmod
 
 # Đặt tất cả về 0 khi chỉnh theo JPG (để kết quả không phụ thuộc mặc định của máy)
@@ -347,12 +347,14 @@ def _ask_many(prompt: str, must_dir: bool) -> list[str]:
 def menu() -> None:
     """Bấm đúp editer-anh.exe -> menu hỏi từng bước, không cần gõ lệnh."""
     _log(f"===== EDITER ẢNH {__version__} =====")
-    _log("Ảnh không rời khỏi máy. Tool chỉ ghi file .xmp cạnh ảnh RAW, không sửa ảnh gốc.\n")
+    _log("Ảnh không rời khỏi máy. Tool chỉ ghi file .xmp cạnh ảnh RAW, không sửa ảnh gốc.")
+    _log(f"(Nhật ký: {nhatky.FILE})\n")
     _log("  1. Học phong cách từ các job đã chỉnh (RAW + .xmp)")
     _log("  2. Chỉnh một thư mục RAW theo phong cách đã học")
-    _log("  3. Chỉnh một thư mục RAW theo màu của ảnh JPG mẫu")
-    _log("  4. Thoát")
-    c = input("\nChọn (1-4): ").strip()
+    _log("  3. Chép màu ảnh JPG mẫu cho một thư mục RAW")
+    _log("  4. Kiểm tra kết nối Photoshop (thử mở 1 ảnh RAW bằng Camera Raw)")
+    _log("  5. Thoát")
+    c = input("\nChọn (1-5): ").strip()
     try:
         if c == "1":
             dirs = _ask_many("Kéo thả các thư mục job đã chỉnh vào đây", True)
@@ -378,25 +380,35 @@ def menu() -> None:
             if name:
                 args += ["--luu-preset", name]
             main(args)
+        elif c == "4":
+            f = _ask_path("Kéo thả 1 file RAW (NEF/ARW/CR3...) vào đây: ", False)
+            main(["kiem-tra-photoshop", f])
     except SystemExit as e:
         if e.code not in (0, None):
             _log(f"\n{e.code}")
-    except Exception as e:  # không để cửa sổ tắt mất mà không thấy lỗi
+    except BaseException as e:  # không để cửa sổ tắt mất mà không thấy lỗi
         import traceback
         traceback.print_exc()
         _log(f"\nLỖI: {e}")
+        _log(f"Gửi file nhật ký này để được hỗ trợ: {nhatky.FILE}")
     input("\nNhấn Enter để đóng...")
 
 
 def main(argv=None) -> None:
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
-    if argv is None and len(sys.argv) == 1:
-        return menu()
+    if argv is None:   # lần gọi đầu tiên (từ dòng lệnh hoặc bấm đúp)
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+            sys.stderr.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+        nhatky.setup(__version__)
+        if "--cpu" in sys.argv[1:]:
+            os.environ["EDITER_CPU"] = "1"
+        if len([a for a in sys.argv[1:] if a != "--cpu"]) == 0:
+            return menu()
     ap = argparse.ArgumentParser(prog="editer-anh", description="Editer Ảnh — tự chỉnh màu RAW, ghi .xmp cho Camera Raw")
     ap.add_argument("--version", action="version", version=__version__)
+    ap.add_argument("--cpu", action="store_true", help="chạy AI bằng CPU, không dùng card đồ hoạ")
     sub = ap.add_subparsers(dest="lenh", required=True)
 
     h = sub.add_parser("hoc", help="học phong cách từ các job đã chỉnh (RAW + .xmp)")

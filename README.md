@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.3)
+## Editer Ảnh (bản 0.3.1)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén, bấm đúp `editer-anh.exe`.
@@ -48,7 +48,12 @@ tra chéo rồi giữ cách sai ít nhất. Tool cũng báo độ lệch khi kh�
 **Học thêm:** dữ liệu đã học được lưu trong file phong cách. Lần sau tool chỉ đọc ảnh mới
 hoặc ảnh có `.xmp` vừa sửa, và lưu lịch sử độ chính xác qua các lần học.
 
-Dòng lệnh (cho người dùng nâng cao):
+**Nhật ký & an toàn (0.3.1):** mọi thứ hiện trên màn hình được ghi vào
+`%USERPROFILE%\Editer\nhat-ky.txt`. Cả lúc chương trình sập ở tầng C/driver cũng được ghi, nhờ
+`faulthandler`. Nếu lần chạy trước sập khi đang thử AI trên card đồ hoạ, lần sau tool tự dùng
+CPU (`gpu-tat.txt`).
+
+Dòng lệnh (cho người dùng nâng cao; trong PowerShell phải gõ `.\editer-anh.exe`):
 
 ```
 editer-anh hoc  <thư mục job>... -o phong-cach.editer
