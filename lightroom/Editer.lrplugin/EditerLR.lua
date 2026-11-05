@@ -2,6 +2,7 @@
 phân tích (đọc file RAW, AI chia cảnh / tìm da), áp kết quả thẳng vào catalog (thấy ngay, Edit > Undo được). ]]
 
 local LrApplication = import 'LrApplication'
+local LrDate = import 'LrDate'
 local LrDialogs = import 'LrDialogs'
 local LrExportSession = import 'LrExportSession'
 local LrFileUtils = import 'LrFileUtils'
@@ -10,6 +11,9 @@ local LrProgressScope = import 'LrProgressScope'
 local LrTasks = import 'LrTasks'
 
 local Core = require 'EditerCore'
+
+-- Lightroom: bắt lỗi khi gọi API của Lightroom phải dùng LrTasks.pcall (pcall thường không cho tác vụ "nhường")
+local tpcall = LrTasks.pcall or pcall
 
 local M = {}
 local TITLE = 'Editer'
@@ -38,13 +42,39 @@ local function writeFile(path, s)
   f:close()
 end
 
+-- Lightroom không có os.remove / os.rename -> dùng LrFileUtils
+local function deleteFile(path)
+  if LrFileUtils.exists(path) then
+    tpcall(function() LrFileUtils.delete(path) end)
+  end
+  return not LrFileUtils.exists(path)
+end
+
+--- Ghi file tạm rồi đổi tên, để editer-anh.exe không đọc phải file đang ghi dở.
+local function writeAtomic(path, s)
+  local tmp = path .. '.tmp'
+  writeFile(tmp, s)
+  deleteFile(path)
+  tpcall(function() LrFileUtils.move(tmp, path) end)
+  if not LrFileUtils.exists(path) then
+    writeFile(path, s)
+    deleteFile(tmp)
+  end
+end
+
+local function newJobId()
+  local t = 0
+  tpcall(function() t = LrDate.currentTime() end)
+  return string.format('%.0f-%d', t * 1000, math.random(100000, 999999))
+end
+
 local function logPath()
   return LrPathUtils.child(dataDir(), 'nhat-ky.txt')
 end
 
 ---------------------------------------------------------------------------- trạng thái (ảnh tool đã đồng bộ, ảnh lúc bước 1)
 local function catalogKey(catalog)
-  local ok, p = pcall(function() return catalog:getPath() end)
+  local ok, p = tpcall(function() return catalog:getPath() end)
   return (ok and p) or 'catalog'
 end
 
@@ -93,8 +123,9 @@ local function runHelper(kind, job)
   if not LrFileUtils.exists(dir) then LrFileUtils.createAllDirectories(dir) end
   local jobPath = LrPathUtils.child(dir, 'viec.json')
   local outPath = LrPathUtils.child(dir, 'ket-qua.json')
+  job.viec_id = newJobId()
   writeFile(jobPath, Core.encode(job))
-  pcall(os.remove, outPath)
+  deleteFile(outPath)
   local args = {}
   for _, a in ipairs(cmd) do args[#args + 1] = a end
   args[#args + 1] = kind
@@ -107,6 +138,9 @@ local function runHelper(kind, job)
   end
   local ok, res = pcall(Core.decode, s)
   if not ok or type(res) ~= 'table' then return nil, 'Kết quả Editer bị lỗi: ' .. tostring(res) end
+  if res.viec_id ~= job.viec_id then
+    return nil, 'Editer không chạy được (không có kết quả mới, mã ' .. tostring(status) .. ').\nXem nhật ký: ' .. logPath()
+  end
   if not res.ok then return nil, tostring(res.loi or 'Editer báo lỗi') .. '\n\nNhật ký: ' .. logPath() end
   return res
 end
@@ -114,7 +148,7 @@ end
 ---------------------------------------------------------------------------- ảnh trong catalog
 local function targetPhotos(catalog)
   local photos
-  local ok = pcall(function() photos = catalog:getMultipleSelectedOrAllPhotos() end)
+  local ok = tpcall(function() photos = catalog:getMultipleSelectedOrAllPhotos() end)
   if not ok or not photos or #photos == 0 then photos = catalog:getTargetPhotos() end
   return photos or {}
 end
@@ -122,7 +156,7 @@ end
 local function collect(photos, progress)
   local items, other = {}, 0
   for i, p in ipairs(photos) do
-    local okf, fmt = pcall(function() return p:getRawMetadata('fileFormat') end)
+    local okf, fmt = tpcall(function() return p:getRawMetadata('fileFormat') end)
     if okf and fmt and NOT_RAW[string.upper(tostring(fmt))] then
       other = other + 1
     else
@@ -202,7 +236,7 @@ function M.chonAnhMau()
       if old and #old > 0 then coll:removePhotos(old) end
       coll:addPhotos(chosen)
     end, { timeout = 30 })
-    pcall(function() catalog:setActiveSources({ coll }) end)
+    tpcall(function() catalog:setActiveSources({ coll }) end)
   end
   local head
   if #todo > 0 then
@@ -228,12 +262,12 @@ local function updateAI(catalog, plan)
   end
   if #photos == 0 then return 0 end
   local progress = LrProgressScope { title = 'Editer: tính lại mask AI' }
-  pcall(function() progress:setCancelable(true) end)
+  tpcall(function() progress:setCancelable(true) end)
   local done = 0
   for i, photo in ipairs(photos) do
     if progress:isCanceled() then break end
     progress:setCaption(string.format('Tính lại mask AI %d/%d...', i, #photos))
-    local ok = pcall(function()
+    local ok = tpcall(function()
       catalog:withWriteAccessDo('Editer: tính lại mask AI', function() photo:updateAISettings() end,
         { timeout = 30 })
     end)
@@ -285,7 +319,7 @@ function M.dongBo()
   local failed = {}
   catalog:withWriteAccessDo('Editer: đồng bộ theo ảnh bạn chỉnh', function()
     for k, p in ipairs(plan) do
-      local ok, e = pcall(function() p.item.photo:applyDevelopSettings(p.settings, 'Editer: đồng bộ') end)
+      local ok, e = tpcall(function() p.item.photo:applyDevelopSettings(p.settings, 'Editer: đồng bộ') end)
       if not ok then failed[#failed + 1] = p.item.name .. ': ' .. tostring(e) end
       if k % 10 == 0 then progress:setPortionComplete(k, #plan) end
     end
@@ -374,7 +408,7 @@ local function exportJpeg(photo, dir, size)
 end
 
 local function applyOne(catalog, photo, s, name)
-  local ok, err = pcall(function()
+  local ok, err = tpcall(function()
     catalog:withWriteAccessDo(name, function() photo:applyDevelopSettings(s, name) end, { timeout = 60 })
   end)
   return ok, err
@@ -394,7 +428,7 @@ local function serveRender(catalog, items, req, dir, touched, notes)
   end
   if not ok then return { ok = false, loi = 'Lightroom không nhận thông số: ' .. tostring(err) } end
   if hasMask and hasMethod(it.photo, 'updateAISettings') then
-    pcall(function()
+    tpcall(function()
       catalog:withWriteAccessDo('Editer: tính mask AI', function() it.photo:updateAISettings() end, { timeout = 60 })
     end)
   end
@@ -439,11 +473,15 @@ function M.chepMau()
   local outPath = LrPathUtils.child(base, 'ket-qua-chep-mau.json')
   local anh = {}
   for _, it in ipairs(items) do anh[#anh + 1] = { path = it.path } end
-  writeFile(jobPath, Core.encode({ ai = true, anh = anh, mau_jpg = jpgs, lam_viec = work, co_anh = 1024 }))
-  pcall(os.remove, outPath)
-  for n = 1, 500 do
-    pcall(os.remove, LrPathUtils.child(work, 'xong-' .. n .. '.json'))
-  end
+  local jobId = newJobId()
+  writeFile(jobPath, Core.encode({ ai = true, anh = anh, mau_jpg = jpgs, lam_viec = work, co_anh = 1024,
+                                   viec_id = jobId }))
+  deleteFile(outPath)
+  tpcall(function()                              -- dọn yêu cầu / kết quả dựng thử của lần trước
+    local old = {}
+    for f in LrFileUtils.files(work) do old[#old + 1] = f end
+    for _, f in ipairs(old) do deleteFile(f) end
+  end)
   local args = {}
   for _, a in ipairs(cmd) do args[#args + 1] = a end
   args[#args + 1] = 'lr-chep-mau'
@@ -457,38 +495,47 @@ function M.chepMau()
   progress:setCaption(string.format('Editer đang phân tích %d ảnh, Lightroom dựng thử ảnh đại diện để đo màu...%s',
     #items, WIN_ENV and ' Cửa sổ đen là Editer đang chạy — đừng đóng.' or ''))
   local touched, notes, n = {}, {}, 1
-  while true do
-    local reqPath = LrPathUtils.child(work, 'yeu-cau-' .. n .. '.json')
-    local s = readFile(reqPath)
-    if s then
-      local ok, req = pcall(Core.decode, s)
-      local resp
-      if ok and type(req) == 'table' then
-        resp = serveRender(catalog, items, req, work, touched, notes)
+  local served, serveErr = tpcall(function()
+    while true do
+      local reqPath = LrPathUtils.child(work, 'yeu-cau-' .. n .. '.json')
+      local s = readFile(reqPath)
+      if s then
+        local ok, req = pcall(Core.decode, s)
+        local resp
+        if ok and type(req) == 'table' and req.viec_id == jobId then
+          local okr, r = tpcall(serveRender, catalog, items, req, work, touched, notes)
+          resp = okr and r or { ok = false, loi = 'Lightroom lỗi khi dựng thử: ' .. tostring(r) }
+        else
+          resp = { ok = false, loi = 'yêu cầu dựng thử bị lỗi' }
+        end
+        writeAtomic(LrPathUtils.child(work, 'xong-' .. n .. '.json'), Core.encode(resp))
+        progress:setCaption(string.format('Lightroom đã dựng thử %d ảnh...', n))
+        n = n + 1
+      elseif state.done then
+        break
       else
-        resp = { ok = false, loi = 'yêu cầu dựng thử bị lỗi' }
+        LrTasks.sleep(0.2)
       end
-      local donePath = LrPathUtils.child(work, 'xong-' .. n .. '.json')
-      writeFile(donePath .. '.tmp', Core.encode(resp))
-      pcall(os.remove, donePath)
-      os.rename(donePath .. '.tmp', donePath)
-      progress:setCaption(string.format('Lightroom đã dựng thử %d ảnh...', n))
-      n = n + 1
-    elseif state.done then
-      break
-    else
-      LrTasks.sleep(0.2)
     end
-  end
-  -- ảnh đại diện: trả lại thông số gốc trước khi áp kết quả
+  end)
+  -- ảnh đại diện: LUÔN trả lại thông số gốc (kể cả khi có lỗi) trước khi áp kết quả
   for _, it in pairs(touched) do
     local orig = Core.deepcopy(it.settings)
     if orig.MaskGroupBasedCorrections == nil then orig.MaskGroupBasedCorrections = {} end
     applyOne(catalog, it.photo, orig, 'Editer: trả lại thông số gốc')
   end
+  if not served then
+    progress:done()
+    LrDialogs.message(TITLE, 'Lỗi trong lúc Lightroom dựng thử: ' .. tostring(serveErr)
+      .. '\nẢnh đại diện đã được trả lại thông số gốc.\nNhật ký: ' .. logPath(), 'critical')
+    return
+  end
   local out = readFile(outPath)
   local okd, res = false, nil
   if out then okd, res = pcall(Core.decode, out) end
+  if okd and type(res) == 'table' and res.viec_id ~= jobId then
+    okd, res = false, { loi = 'Editer không chạy được (không có kết quả mới, mã ' .. tostring(state.code) .. ').' }
+  end
   if not okd or type(res) ~= 'table' or not res.ok then
     progress:done()
     LrDialogs.message(TITLE, (type(res) == 'table' and res.loi) and tostring(res.loi)
@@ -504,10 +551,10 @@ function M.chepMau()
         loi[#loi + 1] = it.name .. ': ' .. tostring(d.loi)
       elseif it and d.thong_so then
         local s, hasMask = Core.copySettings(d.thong_so, it.settings)
-        local ok, e = pcall(function() it.photo:applyDevelopSettings(s, 'Editer: chép màu') end)
+        local ok, e = tpcall(function() it.photo:applyDevelopSettings(s, 'Editer: chép màu') end)
         if not ok and hasMask then
           maskDropped = maskDropped + 1
-          ok, e = pcall(function() it.photo:applyDevelopSettings(Core.withoutMasks(s), 'Editer: chép màu') end)
+          ok, e = tpcall(function() it.photo:applyDevelopSettings(Core.withoutMasks(s), 'Editer: chép màu') end)
         end
         if ok then applied = applied + 1 else failed[#failed + 1] = it.name .. ': ' .. tostring(e) end
       end

@@ -109,6 +109,33 @@ def lua_runtime():
     return lua51.LuaRuntime(unpack_returned_tuples=True)
 
 
+def fs_helpers(lua) -> None:
+    """LrFileUtils / LrDate của Lightroom giả (làm bằng Python, chạy được cả Windows)."""
+    import shutil
+    import time
+    g = lua.globals()
+    g.py_exists = lambda path: "file" if Path(path).is_file() else "directory" if Path(path).is_dir() else False
+    g.py_mkdirs = lambda path: os.makedirs(path, exist_ok=True)
+
+    def delete(path):
+        q = Path(path)
+        if q.is_dir():
+            shutil.rmtree(q)
+        elif q.exists():
+            q.unlink()
+        return True
+
+    def move(a, b):
+        if Path(b).exists():
+            raise OSError("đích đã có")             # như LrFileUtils.move: không ghi đè
+        shutil.move(a, b)
+        return True
+    g.py_delete = delete
+    g.py_move = move
+    g.py_listdir = lambda d: lua.table_from([str(x) for x in sorted(Path(d).iterdir())] if Path(d).is_dir() else [])
+    g.py_now = lambda: time.time() - 978307200.0
+
+
 def test_core() -> None:
     lua = lua_runtime()
     lua.execute(f"package.path = '{PLUGIN.as_posix()}/?.lua;' .. package.path")
@@ -189,15 +216,22 @@ def test_plugin(tmp: Path, paths: list[Path]) -> None:
         assert args and " ".join(f'"{a}"' for a in args) == line, line
         return subprocess.run(args, env={**os.environ, "PYTHONUTF8": "1"}).returncode
 
-    def py_exists(path):
-        q = Path(path)
-        return "file" if q.is_file() else "directory" if q.is_dir() else False
-
     g = lua.globals()
     g.FAKE_HOME = str(home)
-    g.py_execute = py_execute
-    g.py_exists = py_exists
-    g.py_mkdirs = lambda path: os.makedirs(path, exist_ok=True)
+    fail = {"next": False}
+
+    def execute(cmd):
+        if fail["next"]:                       # editer-anh.exe hỏng / bị đóng giữa chừng: không ghi kết quả mới
+            stale = fail["next"]
+            fail["next"] = False
+            calls.append(cmd)
+            if isinstance(stale, str):         # còn sót kết quả cũ (không xoá được) -> phải bị bỏ qua
+                out_path = re.findall(r'"([^"]*)"', cmd)[-1]
+                Path(out_path).write_text(stale, encoding="utf-8")
+            return 1
+        return py_execute(cmd)
+    g.py_execute = execute
+    fs_helpers(lua)
     g._PLUGIN = lua.table_from({"path": str(PLUGIN)})
     lua.execute(f"package.path = '{PLUGIN.as_posix()}/?.lua;{(ROOT / 'tests').as_posix()}/?.lua;' .. package.path")
     fake = lua.eval("require('lr_fake_sdk')")
@@ -238,6 +272,21 @@ def test_plugin(tmp: Path, paths: list[Path]) -> None:
         assert settings(i) == refs[i], "không đụng ảnh bạn đã chỉnh"
     state = json.loads((home / "Editer" / "lightroom-trang-thai.json").read_text(encoding="utf-8"))
     assert len(state["/tmp/editer-test.lrcat"]["sync"]) == 4
+
+    # editer-anh.exe không chạy được: KHÔNG được áp kết quả cũ còn nằm trong ket-qua.json
+    before = [p.applies for p in photos]
+    out_file = home / "Editer" / "lightroom" / "ket-qua.json"
+    old_result = out_file.read_text(encoding="utf-8")
+    fail["next"] = True
+    lua.execute("require('EditerLR').dongBo()")
+    last = [m.msg for m in fake.messages.values()][-1]
+    assert "không chạy được" in last and [p.applies for p in photos] == before, last
+    fail["next"] = old_result                  # kết quả của lần chạy trước (khác mã lần chạy)
+    lua.execute("require('EditerLR').dongBo()")
+    last = [m.msg for m in fake.messages.values()][-1]
+    assert "không có kết quả mới" in last and [p.applies for p in photos] == before, last
+    calls.pop()
+    calls.pop()
 
     # Lần 2: ảnh tool đã đồng bộ (chưa đụng lại) vẫn là ảnh cần đồng bộ, không thành ảnh mẫu
     lua.execute("require('EditerLR').dongBo()")
@@ -337,8 +386,7 @@ def test_copy(tmp: Path) -> None:
     g.py_sleep = lambda t: time.sleep(float(t))
     g.py_render = py_render
     g.py_execute = lambda cmd: subprocess.run(split_cmd(cmd)).returncode
-    g.py_exists = lambda path: "file" if Path(path).is_file() else "directory" if Path(path).is_dir() else False
-    g.py_mkdirs = lambda path: os.makedirs(path, exist_ok=True)
+    fs_helpers(lua)
     g._PLUGIN = lua.table_from({"path": str(PLUGIN)})
     lua.execute(f"package.path = '{PLUGIN.as_posix()}/?.lua;{(ROOT / 'tests').as_posix()}/?.lua;' .. package.path")
     fake = lua.eval("require('lr_fake_sdk')")

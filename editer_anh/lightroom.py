@@ -236,8 +236,9 @@ class RenderBridge:
     """Nhờ plugin Lightroom dựng ảnh thật: ghi yeu-cau-N.json -> plugin áp thông số vào ảnh, xuất JPEG nhỏ,
     ghi xong-N.json (đường dẫn ảnh + As Shot thật của Lightroom) -> đọc ảnh để đo."""
 
-    def __init__(self, workdir: Path, index: dict, log=print, timeout: float = 300.0):
+    def __init__(self, workdir: Path, index: dict, log=print, timeout: float = 300.0, job_id=None):
         self.dir, self.index, self.log, self.timeout, self.n = Path(workdir), index, log, timeout, 0
+        self.job_id = job_id
         self.dir.mkdir(parents=True, exist_ok=True)
         for f in list(self.dir.glob("yeu-cau-*.json")) + list(self.dir.glob("xong-*.json")):
             try:
@@ -251,7 +252,8 @@ class RenderBridge:
         import numpy as np
         from PIL import Image
         self.n += 1
-        req = {"n": self.n, "i": self.index[str(path)], "thong_so": settings, "co_anh": int(size)}
+        req = {"n": self.n, "i": self.index[str(path)], "thong_so": settings, "co_anh": int(size),
+               "viec_id": self.job_id}
         tmp = self.dir / f"yeu-cau-{self.n}.json.tmp"
         tmp.write_text(json.dumps(req, ensure_ascii=False), encoding="utf-8")
         tmp.replace(self.dir / f"yeu-cau-{self.n}.json")
@@ -261,7 +263,15 @@ class RenderBridge:
             if time.time() - t0 > self.timeout:
                 raise RuntimeError("Lightroom không trả ảnh dựng thử (quá thời gian chờ)")
             time.sleep(0.1)
-        resp = json.loads(done.read_text(encoding="utf-8-sig"))
+        resp = None
+        for _ in range(50):                      # file vừa xuất hiện có thể đang ghi dở
+            try:
+                resp = json.loads(done.read_text(encoding="utf-8-sig"))
+                break
+            except (OSError, ValueError):
+                time.sleep(0.1)
+        if resp is None:
+            raise RuntimeError("không đọc được kết quả dựng thử của Lightroom")
         if not resp.get("ok"):
             raise RuntimeError(resp.get("loi") or "Lightroom không dựng được ảnh")
         with Image.open(resp["anh"]) as im:
@@ -322,7 +332,8 @@ def run_copy(job: dict, log=print, workers: int = 8, use_ai: bool = True) -> dic
                            do_manh=float(job.get("do_manh") or 1.0), luu_preset=None)
     factory = None
     if job.get("lam_viec"):
-        bridge = RenderBridge(Path(job["lam_viec"]), {str(paths[i]): i for i in keep}, log)
+        bridge = RenderBridge(Path(job["lam_viec"]), {str(paths[i]): i for i in keep}, log,
+                              job_id=job.get("viec_id"))
         factory = bridge.factory(a.co_anh)
         log("Lightroom sẽ dựng thử ảnh đại diện để đo màu thật và sửa dần.")
     try:
@@ -345,6 +356,7 @@ def run_copy(job: dict, log=print, workers: int = 8, use_ai: bool = True) -> dic
 def run_job(kind: str, job_path: str, out_path: str, log=print, workers: int = 8, use_ai: bool = True) -> dict:
     """Đọc job.json, chạy, ghi out.json. Lỗi cũng ghi vào out.json để plugin báo cho bạn."""
     out = Path(out_path)
+    job: dict = {}
     try:
         job = json.loads(Path(job_path).read_text(encoding="utf-8-sig"))
         use_ai = use_ai and job.get("ai", True)
@@ -356,6 +368,7 @@ def run_job(kind: str, job_path: str, out_path: str, log=print, workers: int = 8
         import traceback
         traceback.print_exc()
         res = {"ok": False, "loi": f"{type(e).__name__}: {e}"}
+    res["viec_id"] = job.get("viec_id") if isinstance(job, dict) else None   # plugin chỉ nhận kết quả của đúng lần chạy này
     out.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
     if not res.get("ok"):
         log(f"LỖI: {res.get('loi')}")

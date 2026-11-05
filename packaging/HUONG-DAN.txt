@@ -11,6 +11,12 @@ BẠN XEM ẢNH BẰNG LIGHTROOM CLASSIC?  (lý do thường gặp của "không
  lưu thông số). Muốn thấy: trong Lightroom chọn các ảnh -> Metadata -> Read Metadata from Files (Đọc siêu
  dữ liệu từ tệp). Cách tiện hơn: dùng plugin bên dưới, Editer chỉnh thẳng trong catalog.
 
+BẢN 0.12.1 — sửa lỗi plugin Lightroom "attempt to call field 'rename' (a nil value)" khi chép màu (Lightroom
+ không có hàm đổi tên file của Lua — giờ dùng hàm của Lightroom). Nếu bạn đã gặp lỗi này: ảnh đại diện có thể
+ còn thông số "Editer: thử màu" — trong Develop, khung History bấm vào bước ngay TRƯỚC "Editer: thử màu" (hoặc
+ Edit -> Undo). Bản mới luôn trả ảnh đại diện về thông số gốc kể cả khi có lỗi, và không bao giờ áp kết quả
+ cũ của lần chạy trước.
+
 MỚI Ở BẢN 0.12 — CHÉP MÀU TỪ ẢNH JPG MẪU NGAY TRONG LIGHTROOM CLASSIC
  Chọn ảnh (Ctrl+A) -> Library -> Plug-in Extras -> "Editer: Chép màu từ ảnh JPG mẫu…" -> chọn 1 hoặc vài
  ảnh JPG có màu bạn muốn (mỗi cảnh 1 ảnh mẫu càng tốt). Lightroom tự DỰNG THỬ vài ảnh đại diện (xuất JPEG

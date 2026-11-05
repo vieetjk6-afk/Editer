@@ -5,6 +5,11 @@ py_exists(path), py_mkdirs(path); WIN_ENV đặt lại sau khi nạp (true trên
 local fake = { messages = {}, confirms = {}, writes = {}, active = nil, collections = {}, confirm_answer = 'other' }
 FAKE = fake
 
+-- Như Lightroom thật: KHÔNG có os.remove / os.rename / os.execute / os.exit / os.tmpname / io.popen
+-- (lỗi thật đã gặp: "attempt to call field 'rename' (a nil value)")
+os.remove, os.rename, os.execute, os.exit, os.tmpname = nil, nil, nil, nil, nil
+io.popen = nil
+
 local function deepcopy(v)
   if type(v) ~= 'table' then return v end
   local t = {}
@@ -152,7 +157,14 @@ local modules = {
   LrFileUtils = {
     exists = function(p) return py_exists(p) end,                 -- 'file' | 'directory' | false
     createAllDirectories = function(p) py_mkdirs(p) return true end,
+    delete = function(p) return py_delete(p) end,
+    move = function(a, b) return py_move(a, b) end,
+    files = function(dir)
+      local list, i = py_listdir(dir), 0
+      return function() i = i + 1 return list[i] end
+    end,
   },
+  LrDate = { currentTime = function() return py_now() end },
   LrPathUtils = {
     child = function(a, b) return a .. '/' .. b end,
     parent = function(p) return (p:gsub('/[^/]*$', '')) end,
@@ -161,6 +173,7 @@ local modules = {
   },
   LrProgressScope = setmetatable({}, { __call = function(_, args) return setmetatable({ title = args.title }, Progress) end }),
   LrTasks = {
+    pcall = function(f, ...) return pcall(f, ...) end,
     execute = function(cmd)
       fake.last_cmd = cmd
       if not inTask() then return py_execute(cmd) end
