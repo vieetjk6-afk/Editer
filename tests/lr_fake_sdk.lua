@@ -1,5 +1,6 @@
 --[[ Lightroom Classic giả (đủ phần plugin Editer dùng) để chạy plugin ngoài Lightroom trong test.
-Biến toàn cục do test đặt trước: FAKE_HOME (thư mục nhà), py_execute(cmd) -> mã thoát. ]]
+Biến toàn cục do test đặt trước: FAKE_HOME (thư mục nhà), py_execute(cmd) -> mã thoát,
+py_exists(path), py_mkdirs(path); WIN_ENV đặt lại sau khi nạp (true trên Windows, như Lightroom). ]]
 
 local fake = { messages = {}, confirms = {}, writes = {}, active = nil, collections = {}, confirm_answer = 'other' }
 FAKE = fake
@@ -99,13 +100,8 @@ local modules = {
     attachErrorDialogToFunctionContext = function() end,
   },
   LrFileUtils = {
-    exists = function(p)
-      local f = io.open(p, 'rb')
-      if f then f:close() return 'file' end
-      local ok = os.rename(p, p)
-      return ok and 'directory' or false
-    end,
-    createAllDirectories = function(p) os.execute('mkdir -p "' .. p .. '"') return true end,
+    exists = function(p) return py_exists(p) end,                 -- 'file' | 'directory' | false
+    createAllDirectories = function(p) py_mkdirs(p) return true end,
   },
   LrPathUtils = {
     child = function(a, b) return a .. '/' .. b end,

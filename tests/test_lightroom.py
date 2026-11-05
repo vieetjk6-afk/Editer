@@ -7,6 +7,7 @@
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -162,21 +163,36 @@ def test_core() -> None:
 
 def test_plugin(tmp: Path, paths: list[Path]) -> None:
     """Chạy plugin (Lua 5.1) trong Lightroom giả, gọi chương trình thật."""
-    home = Path(os.environ["HOME"])
+    home = Path.home()
     reg = lightroom.register()                         # ghi lightroom.json: plugin biết gọi chương trình ở đâu
     assert (home / "Editer" / "lightroom.json").is_file() and not reg["da_cai"]
     lua = lua_runtime()
     calls = []
 
     def py_execute(cmd):
+        """Như LrTasks.execute: Windows chạy qua cmd.exe /c (bỏ 1 lớp ngoặc kép ngoài cùng)."""
         calls.append(cmd)
-        return subprocess.run(cmd, shell=True, env={**os.environ, "PYTHONUTF8": "1"}).returncode
+        line = cmd
+        if os.name == "nt":
+            assert line.startswith('""') and line.endswith('""'), "Windows: phải bọc thêm 1 lớp ngoặc kép"
+            line = line[1:-1]
+        args = re.findall(r'"([^"]*)"', line)
+        assert args and " ".join(f'"{a}"' for a in args) == line, line
+        return subprocess.run(args, env={**os.environ, "PYTHONUTF8": "1"}).returncode
+
+    def py_exists(path):
+        q = Path(path)
+        return "file" if q.is_file() else "directory" if q.is_dir() else False
+
     g = lua.globals()
     g.FAKE_HOME = str(home)
     g.py_execute = py_execute
+    g.py_exists = py_exists
+    g.py_mkdirs = lambda path: os.makedirs(path, exist_ok=True)
     g._PLUGIN = lua.table_from({"path": str(PLUGIN)})
     lua.execute(f"package.path = '{PLUGIN.as_posix()}/?.lua;{(ROOT / 'tests').as_posix()}/?.lua;' .. package.path")
     fake = lua.eval("require('lr_fake_sdk')")
+    g.WIN_ENV = os.name == "nt"
     tab = lua.eval("function(s) return require('EditerCore').decode(s) end")
     refs = {0: lr_settings(5900, 10, 0.35, 12), 4: lr_settings(3900, 6, 0.6, 30)}
     photos = []
