@@ -447,6 +447,39 @@ def test_match_ref_dress_keep_flowers():
     assert rp["da"] < 3.0 and rp["trắng"] < 2.5
 
 
+def test_overcast_sky_kept():
+    """Ảnh mẫu trời xanh (K.Studio), ảnh của bạn trời mây trắng (lối đi vườn dừa): không được ép trời mây
+    thành trời xanh của mẫu (cả vùng sáng ám xanh lơ). Thời tiết là nội dung ảnh, không phải gu chỉnh màu."""
+    ref_img, rreg = scene(23)
+    _, _, ref_sel, ref = stats_of(ref_img, rreg, ref=True)
+    assert "sky" in ref
+    target, reg = scene(24)
+    lab = color.srgb_to_lab(target.reshape(-1, 3) / 255.0).reshape(target.shape)
+    sky = reg == SKY
+    lab[sky] = np.array([88.0, 0.0, -2.0]) + np.random.default_rng(5).normal(0, 1.0, (int(sky.sum()), 3))
+    target = (np.clip(color.lab_to_srgb(lab.reshape(-1, 3)), 0, 1).reshape(target.shape) * 255 + 0.5).astype(np.uint8)
+    s, idx, sel, m0 = stats_of(target, reg)
+    assert look.sky_mismatch(m0["sky"], ref["sky"]), "trời mây trắng vs trời xanh -> khác kiểu"
+    assert not look.sky_mismatch(ref["sky"], ref["sky"]) and look.sky_mismatch([70, 15, 35], ref["sky"])
+    chroma = {}
+    for guard in (False, True):
+        s, idx, sel, m0 = stats_of(target, reg)
+        if guard:
+            assert look.drop_sky_if_mismatch(sel, m0, ref) and sel.sky is None and "sky" not in m0
+        rep_ = look.Rep(s.px, sel, Look(), AS_SHOT, s.reg, look.make_keep(m0, ref) or None)
+        lk, shots = look.solve([rep_], ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT])
+        out = render(target, lk, shots[0], reg=reg)
+        lo = color.srgb_to_lab(out.reshape(-1, 3) / 255.0).reshape(out.shape)
+        chroma[guard] = float(np.hypot(*lo[sky][:, 1:].mean(axis=0)))
+        if guard:
+            m = look.measure(look.sample_at(out, idx, s).px, sel)
+            rp = look.report([m], ref)
+    print(f"[trời mây] độ đậm màu trời sau khi chép: ép theo mẫu {chroma[False]:.1f} -> giữ {chroma[True]:.1f} | "
+          f"{look.fmt_report(rp)}")
+    assert chroma[True] < 8.0, "trời mây phải còn gần trắng / xám"
+    assert "trời" not in rp and rp["da"] < 3.0 and rp["trắng"] < 2.5
+
+
 def test_skin_guard():
     """Lỗi thật (0.12.1, Lightroom): da ảnh gốc ΔE 9.2, kết quả da ΔE 15.0 (mặt xám) dù trắng / cây tốt hơn
     -> không được nhận. Da chỉ được lệch thêm tối đa 1 ΔE hoặc 10%."""
@@ -502,4 +535,5 @@ if __name__ == "__main__":
     test_skin_guard()
     test_probe_as_shot()
     test_match_ref_dress_keep_flowers()
+    test_overcast_sky_kept()
     print("LOOK OK")

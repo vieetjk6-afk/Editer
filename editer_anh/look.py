@@ -721,6 +721,31 @@ def make_keep(m0: dict, T: dict) -> dict:
     return keep
 
 
+SKY_GRAY_C, SKY_COLOR_C, SKY_HUE_MAX = 10.0, 15.0, 70.0
+
+
+def sky_mismatch(sky0, sky_ref) -> bool:
+    """Trời ảnh của bạn khác KIỂU trời ảnh mẫu: trời mây trắng/xám (độ đậm < 10) vs trời xanh (> 15), hay
+    hoàng hôn cam vs trời xanh (tông lệch > 70°). Thời tiết là NỘI DUNG ảnh, không phải gu chỉnh màu: ép
+    trời mây thành trời xanh của mẫu chỉ làm cả vùng sáng ám xanh lơ."""
+    _, a0, b0 = np.asarray(sky0, float)
+    _, ar, br = np.asarray(sky_ref, float)
+    c0, cr = float(np.hypot(a0, b0)), float(np.hypot(ar, br))
+    if min(c0, cr) < SKY_GRAY_C:
+        return max(c0, cr) > SKY_COLOR_C
+    dh = abs((np.degrees(np.arctan2(b0, a0) - np.arctan2(br, ar)) + 180.0) % 360.0 - 180.0)
+    return dh > SKY_HUE_MAX
+
+
+def drop_sky_if_mismatch(sel: Sel, m0: dict, T: dict) -> bool:
+    """Trời khác kiểu trời mẫu -> bỏ vùng trời khỏi phép đo (không khớp, không báo cáo). True nếu đã bỏ."""
+    if sel.sky is None or "sky" not in m0 or "sky" not in T or not sky_mismatch(m0["sky"], T["sky"]):
+        return False
+    sel.sky = None
+    m0.pop("sky", None)
+    return True
+
+
 def bands_ok(reps: list[Rep], ref: dict) -> np.ndarray:
     """Dải màu HSL được phép chỉnh = dải có BẰNG CHỨNG ở cả ảnh mẫu lẫn ảnh RAW:
     da -> đỏ/cam/vàng; cây -> vàng/xanh lá/xanh ngọc; trời -> xanh ngọc/xanh dương;
@@ -1483,6 +1508,9 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
         sel = select(s)
         m0 = measure(s.px, sel)
         tgt, used = scene_target(ref, embs[i] if embs is not None else None)
+        if drop_sky_if_mismatch(sel, m0, tgt if tgt is not None else ref.stats):
+            log(f"  {Path(photos[i].path).name}: trời khác kiểu trời ảnh mẫu (mây trắng / trời xanh / hoàng hôn)"
+                " -> giữ trời như ảnh gốc, không ép theo mẫu")
         keep = make_keep(m0, tgt if tgt is not None else ref.stats)
         if i in same:   # ảnh mẫu là bản đã chỉnh của CHÍNH ảnh này -> khớp từng điểm ảnh
             rimg = ref.items[same[i]]["img"]

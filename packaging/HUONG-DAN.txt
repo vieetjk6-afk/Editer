@@ -19,6 +19,8 @@ MỚI Ở BẢN 0.13 — CHÉP MÀU KHỚP CẢ ÁO, HOA, ĐỒ TRANG TRÍ (theo
    trắng, bạn áo dài đỏ) -> vẫn giữ màu áo gốc như trước.
  - MÀU KHÁC (hoa, đồ trang trí, sàn, rèm màu) đo theo 8 dải màu như bảng HSL của Lightroom: dải có ở cả
    ảnh mẫu và ảnh của bạn -> khớp theo mẫu; dải ảnh mẫu không có -> giữ màu gốc (không bị nhuộm / rực lên).
+ - TRỜI: ảnh mẫu trời xanh (như ảnh K.Studio) mà ảnh của bạn trời mây trắng / hoàng hôn -> giữ trời như ảnh
+   gốc, không ép theo mẫu (ép trời mây thành trời xanh làm cả vùng sáng ám xanh lơ).
  - Kết quả có thêm các ô: "Màu áo (theo áo mẫu)", "Màu khác", "Màu mẫu không có (giữ gốc)".
  Thử trên ảnh giả lập giống ca của bạn: áo lệch áo mẫu ΔE 19 -> 0,9; hoa giữ gần màu gốc (ΔE 2,4); da, trắng
  vẫn khớp.
