@@ -542,7 +542,7 @@ function M.chepMau()
     return
   end
   progress:setCaption('Áp màu cho cả lô...')
-  local applied, failed, maskDropped, loi = 0, {}, 0, {}
+  local applied, failed, maskDropped, loi, done = 0, {}, 0, {}, {}
   catalog:withWriteAccessDo('Editer: chép màu từ ảnh mẫu', function()
     for _, d in ipairs(res.anh or {}) do
       local it = items[(d.i or -1) + 1]
@@ -555,10 +555,23 @@ function M.chepMau()
           maskDropped = maskDropped + 1
           ok, e = tpcall(function() it.photo:applyDevelopSettings(Core.withoutMasks(s), 'Editer: chép màu') end)
         end
-        if ok then applied = applied + 1 else failed[#failed + 1] = it.name .. ': ' .. tostring(e) end
+        if ok then
+          applied = applied + 1
+          done[#done + 1] = it
+        else
+          failed[#failed + 1] = it.name .. ': ' .. tostring(e)
+        end
       end
     end
   end, { timeout = 60 })
+  -- Ảnh Editer vừa chép màu = ảnh "Editer chỉnh" (như ảnh đã đồng bộ): bạn chỉnh tay lại 1 ảnh mỗi cảnh rồi chạy
+  -- "2. Đồng bộ cả cảnh" thì chỉ ảnh bạn chỉnh là ảnh mẫu, các ảnh còn lại được đồng bộ theo (trước đây bước 2
+  -- coi mọi ảnh vừa chép màu là "ảnh bạn đã chỉnh" -> không còn ảnh nào để đồng bộ).
+  tpcall(function()
+    local st, all, key = loadState(catalog)
+    for _, it in ipairs(done) do st.sync[it.id] = Core.fingerprint(it.photo:getDevelopSettings() or {}) end
+    saveState(all, key, st)
+  end)
   progress:done()
   local msg = string.format('Đã chép màu cho %d ảnh.\nMuốn hoàn tác: Edit → Undo "Editer: chép màu từ ảnh mẫu".\n\n'
     .. '%s %s\n(ΔE dưới 2: mắt gần như không phân biệt; 2-5: gần; trên 5: còn khác rõ)', applied,

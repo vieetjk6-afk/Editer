@@ -447,6 +447,14 @@ def test_copy(tmp: Path) -> None:
             "giữ profile / ống kính của ảnh"
         assert ph.history == "Editer: chép màu"
     print(f"[lightroom] chép màu từ JPG: Lightroom dựng thử {fake.exports} lần, áp màu 5 ảnh: OK")
+    # Chép màu xong, bạn chỉnh tay lại 1 ảnh cho ưng -> "2. Đồng bộ cả cảnh": ảnh đó là ảnh mẫu, 4 ảnh Editer vừa
+    # chép màu (bạn chưa đụng) được đồng bộ theo — không phải "5 ảnh bạn đã chỉnh, không còn ảnh nào để đồng bộ".
+    lua.eval("function(p) p._settings.Exposure2012 = 0.6; p._settings.Vibrance = 18 end")(photos[2])
+    lua.execute("require('EditerLR').dongBo()")
+    msg = [m.msg for m in fake.messages.values()][-1]
+    assert "Đã đồng bộ 4 ảnh theo 1 ảnh bạn chỉnh" in msg, msg
+    assert photos[2].history == "Editer: chép màu" and photos[0].history == "Editer: đồng bộ"
+    print("[lightroom] chép màu xong chỉnh tay 1 ảnh -> bước 2 đồng bộ 4 ảnh còn lại theo ảnh đó: OK")
 
 
 def test_install(tmp: Path) -> None:

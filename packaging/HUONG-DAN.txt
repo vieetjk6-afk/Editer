@@ -18,6 +18,9 @@ BẢN 0.13.1 — QUAY LẠI CÁCH CHÉP MÀU AN TOÀN CỦA 0.12.2
  - TẮT áo theo áo mẫu và khớp "màu khác": áo giữ đúng màu ảnh RAW như 0.12.2.
  - Không nhận kết quả làm DA hoặc TRẮNG tệ hơn ảnh gốc (trước chỉ chặn da).
  - Giữ 2 sửa lỗi mới: trời mây không bị ép thành trời xanh; chữ Việt trong file trao đổi của plugin.
+ - Sửa lỗi: chép màu xong, bạn chỉnh tay lại 1 ảnh rồi chạy "2. Đồng bộ cả cảnh" thì plugin báo "Mọi ảnh đã
+   chọn đều đã được bạn chỉnh" (coi cả ảnh Editer vừa chép màu là ảnh bạn chỉnh). Giờ chỉ ảnh bạn chỉnh là ảnh
+   mẫu, các ảnh còn lại được đồng bộ theo. (Ảnh chép màu bằng bản cũ: Reset rồi chạy lại.)
  Ảnh đã bị chép màu bằng 0.13.0: Edit -> Undo "Editer: chép màu từ ảnh mẫu" rồi chạy lại.
  Muốn ĐÚNG HỆT kiểu ảnh bạn thích: chỉnh tay 1 ảnh mỗi cảnh trong Lightroom, rồi chạy
  "Editer: 2. Đồng bộ cả cảnh theo ảnh bạn chỉnh" — tool mang đúng thông số đó sang các ảnh còn lại.
