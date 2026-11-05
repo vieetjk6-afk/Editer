@@ -144,14 +144,16 @@ class Api:
         if not p.is_dir():
             return {"ok": False, "loi": f"Không thấy thư mục: {path}"}
         raws = raw.list_raws(p)
-        co_xmp = sum(1 for r in raws if xmp.find_sidecar(r) is not None)
+        sides = [xmp.find_sidecar(r) for r in raws]
+        co_xmp = sum(1 for sd in sides if sd is not None)
+        ban_chinh = sum(1 for sd in sides if xmp.user_edited(sd))
         anh = []
         for r in raws[: 6]:
             ph = raw.load(r, 200)
             if ph.preview is not None:
                 anh.append(thumb(ph.upright(), 200))
         return {"ok": True, "path": str(p), "ten": p.name or str(p), "so_raw": len(raws), "so_xmp": co_xmp,
-                "anh": anh}
+                "so_ban_chinh": ban_chinh, "anh": anh}
 
     def xem_anh(self, paths: list[str]) -> list[dict]:
         out = []
@@ -203,6 +205,39 @@ class Api:
             return {"ok": False, "loi": f"Không mở được Photoshop: {e}"}
         nhatky.note(f"mở {n} ảnh trong Photoshop")
         return {"ok": True, "so": n, "bo": len(files) - n}
+
+    def mo_moi_canh(self, folder: str) -> dict:
+        """Mở trong Photoshop mỗi cảnh 1 ảnh (ảnh giữa cảnh, chia theo giờ chụp) để bạn chỉnh tay làm mẫu."""
+        from .. import style
+        raws = raw.list_raws(folder)
+        if not raws:
+            return {"ok": False, "loi": "Thư mục không có ảnh RAW."}
+        photos = [raw.Photo(path=str(r), time=r.stat().st_mtime) for r in raws]
+        try:
+            import exifread  # noqa: F401
+            for ph in photos:
+                raw._exif(Path(ph.path), ph)
+        except Exception:
+            pass
+        scenes = style.group_scenes(photos)
+        done = set()
+        for i, r in enumerate(raws):
+            if xmp.user_edited(xmp.find_sidecar(r)):
+                done.add(i)                                   # ảnh bạn đã chỉnh
+        pick, edited = [], []
+        for sc in sorted(set(scenes)):
+            idx = sorted((i for i in range(len(raws)) if scenes[i] == sc), key=lambda i: photos[i].time or 0)
+            mine = [i for i in idx if i in done]
+            (edited if mine else pick).append(str(raws[mine[0] if mine else idx[len(idx) // 2]]))
+        if not pick:                                          # cảnh nào cũng có ảnh bạn chỉnh: mở lại để cân tiếp
+            r = self.mo_photoshop(edited)
+            if r.get("ok"):
+                r["ghi_chu"] = "Cảnh nào cũng đã có ảnh bạn chỉnh — mở lại các ảnh đó để cân tiếp."
+            return r
+        r = self.mo_photoshop(pick)
+        if r.get("ok") and edited:
+            r["ghi_chu"] = f"Bỏ qua {len(edited)} cảnh đã có ảnh bạn chỉnh."
+        return r
 
     # ------------------------------------------------------------------ cập nhật phiên bản
     def kiem_tra_cap_nhat(self) -> dict:
@@ -303,6 +338,8 @@ class Api:
             return a + (["--hoc-lai"] if o.get("hoc_lai") else [])
         if viec == "kiem-tra-ps":
             return ["kiem-tra-photoshop", o["raw"]]
+        if viec == "dong-bo":
+            return ["dong-bo", o["thu_muc"]]
         raise ValueError(viec)
 
     def bat_dau(self, viec: str, tuy_chon: dict) -> dict:

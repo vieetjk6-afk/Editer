@@ -78,6 +78,7 @@
     background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700;
   }
   .hint { color: var(--faint); font-size: 12.5px; margin-top: 8px; }
+  .muted { color: var(--muted); font-size: 11.5px; }
 
   /* ô kéo thả */
   .drop { border: 1.5px dashed var(--line); transition: border-color .15s, background .15s; }
@@ -226,6 +227,7 @@
   <symbol id="i-ps" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 15V9h2.2a2 2 0 0 1 0 4H8M17 10.2c-.4-.5-1-.7-1.6-.7-.8 0-1.4.4-1.4 1s.6.8 1.4 1 1.6.5 1.6 1.2-.7 1.1-1.5 1.1c-.7 0-1.3-.3-1.7-.8"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 9M20 4v5h-5M20 12a8 8 0 0 1-13.7 5.6L4 15M4 20v-5h5"/></symbol>
   <symbol id="i-update" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
   <symbol id="i-raw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
 </svg>
@@ -233,6 +235,7 @@
 <aside>
   <div class="brand"><div class="logo"></div><div><b>Editer Ảnh</b><small id="ver">&nbsp;</small></div></div>
   <button class="nav active" data-view="chep"><svg><use href="#i-drop"/></svg>Chép màu từ ảnh mẫu</button>
+  <button class="nav" data-view="db"><svg><use href="#i-sync"/></svg>Đồng bộ từ ảnh đã chỉnh</button>
   <button class="nav" data-view="pc"><svg><use href="#i-sliders"/></svg>Chỉnh theo phong cách</button>
   <button class="nav" data-view="hoc"><svg><use href="#i-learn"/></svg>Học phong cách</button>
   <button class="nav" data-view="ps"><svg><use href="#i-ps"/></svg>Kiểm tra Photoshop</button>
@@ -303,6 +306,33 @@
       <span class="why" id="why-chep"></span>
     </div>
     <div id="out-chep"></div>
+  </section>
+
+  <!-- ===================== ĐỒNG BỘ TỪ ẢNH ĐÃ CHỈNH ===================== -->
+  <section class="view" id="view-db">
+    <div class="head">
+      <h1>Đồng bộ từ ảnh bạn đã chỉnh</h1>
+      <p>Cách chắc chắn đúng màu nhất: bạn chỉnh tay <b>1 ảnh mỗi cảnh</b> trong Camera Raw (hoặc bắt đầu từ kết quả Chép màu rồi
+        cân lại), tool áp <b>đúng thông số đó</b> cho các ảnh còn lại của cảnh và chỉ tự cân lại nhiệt độ màu + độ sáng từng ảnh.
+        Không phải đoán màu từ ảnh của người khác.</p>
+    </div>
+    <div class="card">
+      <h3>Cách làm</h3>
+      <ol class="steps">
+        <li>Chọn thư mục job bên dưới, bấm <b>Mở 1 ảnh mỗi cảnh trong Photoshop</b> (hoặc tự mở bằng Bridge / Camera Raw).</li>
+        <li>Chỉnh mỗi ảnh đó đến khi ưng (WB, tone, HSL, color grading, mask...) rồi bấm <b>Done</b>.</li>
+        <li>Quay lại đây bấm <b>Đồng bộ</b>. Ảnh bạn đã chỉnh không bao giờ bị ghi đè.</li>
+      </ol>
+    </div>
+    <div class="card drop" data-zone="dbdir">
+      <h3><span class="step">1</span>Thư mục ảnh RAW của job</h3>
+      <div id="dbdir-box"></div>
+    </div>
+    <div class="actions">
+      <button class="btn primary" data-act="go-db">Đồng bộ</button>
+      <span class="why" id="why-db"></span>
+    </div>
+    <div id="out-db"></div>
   </section>
 
   <!-- ===================== CHỈNH THEO PHONG CÁCH ===================== -->
@@ -426,7 +456,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtN = (n) => Number(n).toLocaleString("vi-VN");
 let API = null, INFO = null;
-const S = { jpg: [], rawdir: null, pcdir: null, hoc: [], psraw: null, busy: false, zone: null, view: "chep", res: {} };
+const S = { jpg: [], rawdir: null, pcdir: null, dbdir: null, hoc: [], psraw: null, busy: false, zone: null, view: "chep", res: {} };
 
 function toast(msg, ms = 3800) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
@@ -468,6 +498,9 @@ function renderJpg() {
 function renderBoxes() {
   $("#rawdir-box").innerHTML = folderBox(S.rawdir, "rawdir", "Chọn thư mục…");
   $("#pcdir-box").innerHTML = folderBox(S.pcdir, "pcdir", "Chọn thư mục…");
+  $("#dbdir-box").innerHTML = folderBox(S.dbdir, "dbdir", "Chọn thư mục…") + (S.dbdir ? `<p class="note-line">
+      <b>${fmtN(S.dbdir.so_ban_chinh || 0)}</b> ảnh bạn đã chỉnh (làm mẫu) · <b>${fmtN(S.dbdir.so_raw - (S.dbdir.so_ban_chinh || 0))}</b> ảnh sẽ được đồng bộ
+      ${S.dbdir.so_raw ? `<br><button class="btn" data-act="db-open" style="margin-top:8px">Mở 1 ảnh mỗi cảnh trong Photoshop</button>` : ""}</p>` : "");
   $("#psraw-box").innerHTML = S.psraw
     ? `<div class="folder"><div class="ic"><svg><use href="#i-raw"/></svg></div><div class="meta"><div class="name">${esc(S.psraw.ten)}</div>
         <div class="path">${esc(S.psraw.path)}</div></div><button class="btn" data-act="pick-psraw">Đổi…</button></div>
@@ -488,6 +521,9 @@ function check() {
     pc: !style ? "Chưa có phong cách" : !S.pcdir ? "Chọn thư mục ảnh RAW" : !S.pcdir.so_raw ? "Thư mục không có ảnh RAW" : "",
     hoc: !S.hoc.length ? "Thêm ít nhất 1 thư mục job" : S.hoc.every((f) => !f.so_xmp) ? "Các thư mục chưa có ảnh nào đã chỉnh (.xmp)" : "",
     ps: !S.psraw ? "Chọn 1 ảnh RAW" : "",
+    db: !S.dbdir ? "Chọn thư mục job" : !S.dbdir.so_raw ? "Thư mục không có ảnh RAW"
+      : !S.dbdir.so_ban_chinh ? "Chưa có ảnh nào bạn đã chỉnh — chỉnh 1 ảnh mỗi cảnh trong Camera Raw trước"
+      : S.dbdir.so_ban_chinh >= S.dbdir.so_raw ? "Mọi ảnh đều đã được bạn chỉnh" : "",
   };
   for (const k in why) {
     $("#why-" + k).textContent = S.busy ? "Đang chạy…" : why[k];
@@ -531,6 +567,8 @@ document.addEventListener("click", async (e) => {
   else if (act === "rm-jpg") { S.jpg.splice(+el.dataset.i, 1); renderJpg(); }
   else if (act === "pick-rawdir") setFolder("rawdir", await API.chon_thu_muc());
   else if (act === "pick-pcdir") setFolder("pcdir", await API.chon_thu_muc());
+  else if (act === "pick-dbdir") setFolder("dbdir", await API.chon_thu_muc());
+  else if (act === "db-open") { const r = await API.mo_moi_canh(S.dbdir.path); toast(r.ok ? `Đã gửi ${r.so} ảnh (mỗi cảnh 1 ảnh) sang Photoshop.${r.ghi_chu ? " " + r.ghi_chu : ""}` : r.loi, 8000); }
   else if (act === "add-hoc") addHoc(await API.chon_thu_muc());
   else if (act === "rm-hoc") { S.hoc.splice(+el.dataset.i, 1); renderBoxes(); }
   else if (act === "pick-psraw") setRaw(await API.chon_raw());
@@ -557,11 +595,11 @@ document.addEventListener("drop", (e) => { e.preventDefault(); if (!e.target.clo
 window.onNativeDrop = async (paths) => {
   if (!paths || !paths.length) { toast("Không lấy được đường dẫn — hãy dùng nút Chọn…"); return; }
   const k = await API.phan_loai(paths);
-  const zone = S.zone || { chep: k.anh.length ? "jpg" : "rawdir", pc: "pcdir", hoc: "hoc", ps: "psraw" }[S.view];
+  const zone = S.zone || { chep: k.anh.length ? "jpg" : "rawdir", pc: "pcdir", db: "dbdir", hoc: "hoc", ps: "psraw" }[S.view];
   S.zone = null;
   const folder = k.thu_muc[0] || k.raw[0];   // thả file RAW -> lấy thư mục chứa nó
   if (zone === "jpg") k.anh.length ? addJpg(k.anh) : toast("Ô này nhận ảnh JPG mẫu.");
-  else if (zone === "rawdir" || zone === "pcdir") folder ? setFolder(zone, folder) : toast("Ô này nhận thư mục ảnh RAW.");
+  else if (zone === "rawdir" || zone === "pcdir" || zone === "dbdir") folder ? setFolder(zone, folder) : toast("Ô này nhận thư mục ảnh RAW.");
   else if (zone === "hoc") { if (!k.thu_muc.length) toast("Ô này nhận thư mục job."); for (const p of k.thu_muc) await addHoc(p); }
   else if (zone === "psraw") k.raw.length ? setRaw(k.raw[0]) : toast("Ô này nhận 1 file ảnh RAW.");
   else toast("Mục này không nhận kéo thả.");
@@ -569,7 +607,7 @@ window.onNativeDrop = async (paths) => {
 
 /* ---------- chạy việc ---------- */
 async function start(view) {
-  const viec = { chep: "chep-mau", pc: "phong-cach", hoc: "hoc", ps: "kiem-tra-ps" }[view];
+  const viec = { chep: "chep-mau", pc: "phong-cach", db: "dong-bo", hoc: "hoc", ps: "kiem-tra-ps" }[view];
   const o = {
     chep: () => ({ thu_muc: S.rawdir.path, anh_mau: S.jpg.map((j) => j.path), photoshop: $("#o-ps").checked,
                    giu_chi_tiet: $("#o-keep").checked, ghi_de: $("#o-over").checked,
@@ -577,6 +615,7 @@ async function start(view) {
     pc: () => ({ thu_muc: S.pcdir.path, ghi_de: $("#pc-over").checked }),
     hoc: () => ({ thu_muc_list: S.hoc.map((f) => f.path), hoc_lai: $("#hoc-reset").checked }),
     ps: () => ({ raw: S.psraw.path }),
+    db: () => ({ thu_muc: S.dbdir.path }),
   }[view]();
   const r = await API.bat_dau(viec, o);
   if (!r.ok) { toast(r.loi); return; }
@@ -646,7 +685,8 @@ function finish(view, st) {
   } else {
     const res = st.ket_qua || {};
     S.res[view] = res;
-    box.innerHTML = ({ chep: resChep, pc: resPc, hoc: resHoc, ps: resPs }[view])(res);
+    box.innerHTML = ({ chep: resChep, pc: resPc, db: resDb, hoc: resHoc, ps: resPs }[view])(res);
+    if (view === "db" && S.dbdir) setFolder("dbdir", S.dbdir.path);
     if (view === "hoc") refreshInfo();
   }
   out.appendChild(box);
@@ -705,6 +745,18 @@ function resPc(res) {
   const sc = (res.canh || []).filter((c) => c.ten).slice(0, 8).map((c) => `<span class="pill">Cảnh ${c.so}: ${esc(c.ten)} · ${c.anh} ảnh</span>`).join(" ");
   return `<h2>Xong — ${written(res)}</h2><p class="sub">Mở thư mục bằng Bridge hoặc Camera Raw để xem và chỉnh tiếp.</p>
     ${sc ? `<p>${sc}</p>` : ""}${openBtns(res)}${psBtns(res, "pc")}`;
+}
+function resDb(res) {
+  if (res.thong_bao) return `<h2>${esc(res.thong_bao)}</h2>`;
+  const rows = (res.anh || []).slice(0, 40).map((r) => `<tr><td>${esc(r.ten)}</td><td>${esc(r.mau)}${r.cung_canh ? "" : ' <span class="pill">khác cảnh</span>'}${r.khac_may ? ' <span class="pill">khác máy</span>' : ""}</td>
+      <td>${esc(r.wb)}</td><td>${r.exp >= 0 ? "+" : ""}${Number(r.exp).toFixed(2)}${r.cach ? ` <small class="muted">(${esc(r.cach)})</small>` : ""}</td></tr>`).join("");
+  return `<h2>Xong — đã đồng bộ ${fmtN(res.ghi + res.de)} ảnh theo ${fmtN(res.so_mau)} ảnh bạn đã chỉnh</h2>
+    <p class="sub">Mỗi ảnh lấy đúng thông số của ảnh mẫu cùng cảnh, chỉ cân lại nhiệt độ màu và độ sáng.
+      Không mang sang: cắt khung, xoay / phối cảnh, xoá vết, cọ tô và gradient (chỉ đúng vị trí trong ảnh mẫu).
+      Sao, nhãn màu, từ khoá của ảnh giữ nguyên.</p>
+    <table><thead><tr><th>Ảnh</th><th>Theo ảnh bạn chỉnh</th><th>Cân bằng trắng</th><th>Exposure</th></tr></thead><tbody>${rows}</tbody></table>
+    ${(res.anh || []).length > 40 ? `<p class="hint">… và ${fmtN(res.anh.length - 40)} ảnh khác.</p>` : ""}
+    ${openBtns(res)}${psBtns(res, "db")}`;
 }
 function resHoc(res) {
   const rows = (res.rows || []).map((r) => r.lech

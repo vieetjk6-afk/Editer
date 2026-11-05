@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import copy
 import re
 import shutil
 import xml.etree.ElementTree as ET
@@ -26,9 +27,16 @@ for _p, _u in NS.items():
 CRS = "{%s}" % NS["crs"]
 RDF = "{%s}" % NS["rdf"]
 
-# Thuộc tính chỉ đúng cho đúng một tấm ảnh -> không đưa vào mẫu
-_DROP_ATTR_PREFIX = ("Crop", "RawFileName", "HasCrop", "AlreadyApplied", "HasSettings",
-                     "UprightFourSegments", "UprightPreview", "UprightTransform")
+# Đánh dấu file .xmp do Editer ghi (Bridge / Camera Raw giữ nguyên namespace lạ khi ghi lại file)
+ED = "{http://ns.editer.vn/anh/1.0/}"
+ET.register_namespace("editer", ED[1:-1])
+
+# Thuộc tính chỉ đúng cho đúng một tấm ảnh -> không đưa vào mẫu: cắt khung, xoay, Upright, kéo phối cảnh tay
+_DROP_ATTR_PREFIX = ("Crop", "RawFileName", "HasCrop", "AlreadyApplied", "HasSettings", "Upright",
+                     "PerspectiveVertical", "PerspectiveHorizontal", "PerspectiveRotate", "PerspectiveScale",
+                     "PerspectiveAspect", "PerspectiveX", "PerspectiveY")
+# Profile ống kính CỤ THỂ của tấm đó (24-70 khác 85mm...) -> bỏ, Camera Raw tự nhận ống kính từng ảnh
+_LENS_ID = {"LensProfileName", "LensProfileFilename", "LensProfileDigest", "LensProfileIsEmbedded"}
 _DROP_CHILDREN = {"GradientBasedCorrections", "CircularGradientBasedCorrections",
                   "PaintBasedCorrections", "RetouchInfo", "RetouchAreas", "UprightFourSegments_0",
                   "FilterList"}  # FilterList = Denoise/Raw Details, gắn với file gốc
@@ -132,13 +140,7 @@ def make_template(path: str | Path) -> str:
     root = _parse(Path(path))
     desc = _desc_of(root)
     new = ET.Element(RDF + "Description", {RDF + "about": ""})
-    for k, v in desc.attrib.items():
-        if not k.startswith(CRS):
-            continue
-        name = k[len(CRS):]
-        if name.startswith(_DROP_ATTR_PREFIX):
-            continue
-        new.set(k, v)
+    _copy_attrs(desc, new)
     for child in desc:
         if not child.tag.startswith(CRS):
             continue
@@ -150,6 +152,39 @@ def make_template(path: str | Path) -> str:
             if child is None:
                 continue
         new.append(child)
+    return ET.tostring(new, encoding="unicode")
+
+
+def _copy_attrs(desc: ET.Element, new: ET.Element, keep_lens: bool = False, keep_profile_digest: bool = True,
+                drop=()) -> None:
+    """Chép thông số crs:* sang mẫu, bỏ thứ chỉ đúng cho đúng tấm đó."""
+    for k, v in desc.attrib.items():
+        if not k.startswith(CRS):
+            continue
+        name = k[len(CRS):]
+        if name.startswith(_DROP_ATTR_PREFIX) or name in drop:
+            continue
+        if name == "PerspectiveUpright" and v.strip() == "5":
+            continue                                  # Upright "Guided": đường dẫn hướng vẽ trên riêng tấm đó
+        if not keep_lens and name in _LENS_ID:
+            continue
+        if not keep_profile_digest and name == "CameraProfileDigest":
+            continue                                  # khác đời máy: Camera Raw tìm profile theo tên
+        new.set(k, v)
+    if not keep_lens and new.get(CRS + "LensProfileSetup") == "Custom":
+        new.set(CRS + "LensProfileSetup", "LensDefaults")
+
+
+def clean_template(template_xml: str) -> str:
+    """Mẫu học từ bản cũ (trước 0.10): bỏ profile ống kính cụ thể, phối cảnh, Upright của riêng một tấm ảnh."""
+    try:
+        d = ET.fromstring(template_xml)
+    except ET.ParseError:
+        return template_xml
+    new = ET.Element(d.tag, {k: v for k, v in d.attrib.items() if not k.startswith(CRS)})
+    _copy_attrs(d, new)
+    for c in d:
+        new.append(c)
     return ET.tostring(new, encoding="unicode")
 
 
@@ -176,6 +211,124 @@ def _portable_masks(group: ET.Element) -> ET.Element | None:
     for li in keep:
         seq.append(li)
     return group if keep else None
+
+
+def _crs_hash(desc: ET.Element) -> str:
+    """Dấu vân tay các thông số crs:* (để biết sau này Camera Raw có lưu lại thông số khác không)."""
+    import hashlib
+    items = sorted((k[len(CRS):], v) for k, v in desc.attrib.items() if k.startswith(CRS))
+    return hashlib.sha1("\n".join(f"{k}={v}" for k, v in items).encode("utf-8")).hexdigest()[:16]
+
+
+def written_by_editer(path: str | Path) -> bool:
+    """File .xmp do Editer ghi mà bạn CHƯA chỉnh lại trong Camera Raw?
+    - Còn nguyên x:xmptk="Editer" -> đúng.
+    - Bridge / Photo Mechanic chỉ gắn sao, nhãn màu, từ khoá (ghi lại cả file bằng bộ XMP của Adobe) nhưng
+      thông số Camera Raw còn y như lúc tool ghi -> vẫn là của tool.
+    - Camera Raw đã lưu lại (bấm Done / Open) -> thông số đổi -> ảnh bạn đã chỉnh."""
+    try:
+        root = _parse(Path(path))
+    except Exception:
+        return False
+    node = root if root.tag == "{%s}xmpmeta" % NS["x"] else root.find(".//x:xmpmeta", NS)
+    tk = (node.attrib.get("{%s}xmptk" % NS["x"], "") if node is not None else "")
+    if tk.startswith("Editer"):
+        return True
+    mark = next((d.attrib[ED + "CrsHash"] for d in root.iter(RDF + "Description") if ED + "CrsHash" in d.attrib),
+                None)
+    if not mark:
+        return False
+    try:
+        return _crs_hash(_desc_of(root)) == mark
+    except ValueError:
+        return False
+
+
+_EDIT_KEY = re.compile(r"(Exposure2012|Contrast2012|Highlights2012|Shadows2012|Whites2012|Blacks2012|Texture|"
+                       r"Clarity2012|Dehaze|Vibrance|Saturation|Parametric(Shadows|Darks|Lights|Highlights)|"
+                       r"(Hue|Saturation|Luminance)Adjustment\w+|SplitToning\w*Saturation|ColorGrade\w*(Sat|Lum)|"
+                       r"GrainAmount|PostCropVignetteAmount|(Red|Green|Blue)(Hue|Saturation)|ShadowTint)")
+
+
+def has_edits(path: str | Path) -> bool:
+    """File .xmp có chỉnh gì thật không? (mở trong Camera Raw rồi bấm Done mà không đổi gì thì Camera Raw
+    vẫn có thể lưu .xmp toàn thông số mặc định — ảnh đó không phải ảnh mẫu)."""
+    try:
+        root = _parse(Path(path))
+        desc = _desc_of(root)
+    except Exception:
+        return False
+    crs = {k[len(CRS):]: v for k, v in desc.attrib.items() if k.startswith(CRS)}
+    if crs.get("WhiteBalance", "As Shot") != "As Shot":
+        return True
+    if any(_EDIT_KEY.fullmatch(k) and (number(crs, k) or 0) != 0 for k in crs):
+        return True
+    if crs.get("ToneCurveName2012", "Linear") not in ("Linear", ""):
+        return True
+    if crs.get("CameraProfile", "Adobe Standard") not in ("Adobe Standard", "Embedded", ""):
+        return True                                   # chọn profile khác (Camera Standard...)
+    look_ = desc.find("crs:Look", NS)
+    if look_ is not None:
+        name = next((d.attrib.get(CRS + "Name") for d in look_.iter(RDF + "Description")), None)
+        if name and name != "Adobe Color":
+            return True
+    grp = desc.find("crs:MaskGroupBasedCorrections", NS)
+    return grp is not None and len(grp.findall(".//rdf:li", NS)) > 0
+
+
+def user_edited(sidecar: str | Path | None) -> bool:
+    """Ảnh BẠN đã chỉnh (làm mẫu khi đồng bộ): có .xmp không do tool ghi, có thông số Camera Raw và có chỉnh thật."""
+    if sidecar is None or written_by_editer(sidecar):
+        return False
+    try:
+        crs = read_settings(sidecar)["crs"]
+    except Exception:
+        return False
+    return bool(crs) and crs.get("HasSettings", "True") == "True" and has_edits(sidecar)
+
+
+# Đồng bộ: bỏ chỉnh cục bộ theo VỊ TRÍ (cọ tô, gradient thẳng/tròn, xoá vết) — chỉ đúng chỗ trên tấm đó;
+# giữ mask theo NỘI DUNG (AI: người, da, trời, chủ thể, nền; vùng màu/độ sáng) — Camera Raw tính lại trên ảnh mới
+_SYNC_DROP_CHILDREN = {"PaintBasedCorrections", "GradientBasedCorrections", "CircularGradientBasedCorrections",
+                       "RetouchInfo", "RetouchAreas", "UprightFourSegments_0", "FilterList"}
+_SYNC_MASKS = {"Mask/Image", "Mask/RangeMask"}
+_MASK_KIND = {"Mask/Paint": "cọ tô tay", "Mask/Gradient": "gradient thẳng", "Mask/CircularGradient": "gradient tròn"}
+
+
+def sync_template(path: str | Path, same_camera: bool = True, same_lens: bool = False,
+                  drop=()) -> tuple[str, list[str]]:
+    """Đồng bộ trong CÙNG CẢNH: lấy hết thông số ảnh bạn đã chỉnh (profile, curve, HSL, grading, chi
+    tiết, mask AI...), trừ thứ chỉ đúng cho đúng tấm đó: cắt khung, xoay/upright/phối cảnh, xoá vết,
+    chỉnh cục bộ theo vị trí, profile ống kính khi khác ống kính.
+    -> (mẫu XML, tên các chỉnh cục bộ không mang sang)."""
+    root = _parse(Path(path))
+    desc = _desc_of(root)
+    new = ET.Element(RDF + "Description", {RDF + "about": ""})
+    _copy_attrs(desc, new, keep_lens=same_lens, keep_profile_digest=same_camera, drop=set(drop))
+    skipped: list[str] = []
+    for child in desc:
+        if not child.tag.startswith(CRS) or child.tag[len(CRS):] in _SYNC_DROP_CHILDREN:
+            continue
+        if child.tag == CRS + "MaskGroupBasedCorrections":
+            seq = child.find("rdf:Seq", NS)
+            for li in list(seq if seq is not None else []):
+                kinds = {m.attrib.get(CRS + "What", "") for m in li.iter()}
+                kinds = {k for k in kinds if k.startswith("Mask/")}
+                if not kinds or not kinds <= _SYNC_MASKS:
+                    seq.remove(li)
+                    d = li.find("rdf:Description", NS)
+                    name = (d.attrib.get(CRS + "CorrectionName", "") if d is not None else "") or "mask"
+                    why = ", ".join(sorted(_MASK_KIND.get(k, k.replace("Mask/", "")) for k in kinds - _SYNC_MASKS))
+                    skipped.append(f"{name} ({why or 'không rõ loại'})")
+                    continue
+                for m in li.iter():
+                    for a in list(m.attrib):
+                        if a.startswith(CRS) and a[len(CRS):] in _DROP_MASK_ATTR:
+                            del m.attrib[a]               # mask AI: Camera Raw tính lại trên ảnh mới
+            if seq is None or not len(seq):
+                continue
+        new.append(child)
+    return ET.tostring(new, encoding="unicode"), skipped
 
 
 def template_drop_masks(template_xml: str) -> str:
@@ -291,6 +444,7 @@ def build_xmp(template_xml: str | None, values: dict, curve: list[tuple[int, int
         for x, y in curve:
             ET.SubElement(seq, RDF + "li").text = f"{int(x)}, {int(y)}"
         desc.set(CRS + "ToneCurveName2012", "Custom")
+    desc.set(ED + "CrsHash", _crs_hash(desc))
     xmpmeta = ET.Element("{%s}xmpmeta" % NS["x"], {"{%s}xmptk" % NS["x"]: tool_name})
     rdf = ET.SubElement(xmpmeta, RDF + "RDF")
     rdf.append(desc)
@@ -343,6 +497,60 @@ def preset_dir() -> Path:
     return Path(os.environ.get("APPDATA", Path.home())) / "Adobe" / "CameraRaw" / "Settings"
 
 
+def _top_descs(root: ET.Element) -> list[ET.Element]:
+    rdf = root if root.tag == RDF + "RDF" else root.find("rdf:RDF", NS)
+    return [] if rdf is None else [d for d in rdf if d.tag == RDF + "Description"]
+
+
+def _keep_prefixes(text: str) -> None:
+    """Giữ tên viết tắt namespace của file cũ (xmp:, photoshop:, dc:...) thay vì ns0:, ns1:."""
+    import io
+    used = set(ET._namespace_map.values())
+    try:
+        for _, (prefix, uri) in ET.iterparse(io.StringIO(text), events=("start-ns",)):
+            if (prefix and uri not in ET._namespace_map and prefix not in used
+                    and not re.fullmatch(r"ns\d+", prefix)):
+                ET.register_namespace(prefix, uri)
+                used.add(prefix)
+    except (ET.ParseError, ValueError):
+        pass
+
+
+def carry_meta(old: Path, content: str) -> str:
+    """Ghi thông số mới mà GIỮ thông tin khác trong .xmp cũ: sao, nhãn màu, từ khoá, IPTC... (Bridge,
+    Photo Mechanic, Lightroom ghi) — chỉ thay phần thông số Camera Raw."""
+    try:
+        text = old.read_text(encoding="utf-8", errors="replace")
+        old_root = _parse(old)
+        new_root = ET.fromstring(content)
+    except Exception:
+        return content
+    i = text.find("<x:xmpmeta")
+    _keep_prefixes(text[i:text.rfind("</x:xmpmeta>") + len("</x:xmpmeta>")] if i >= 0 else text)
+    descs = _top_descs(new_root)
+    if not descs:
+        return content
+    nd = descs[0]
+    tags = {c.tag for c in nd}
+    added = 0
+    for od in _top_descs(old_root):
+        for k, v in od.attrib.items():
+            if k.startswith((CRS, ED)) or k == RDF + "about" or k in nd.attrib:
+                continue
+            nd.set(k, v)
+            added += 1
+        for ch in od:
+            if ch.tag.startswith((CRS, ED)) or ch.tag in tags:
+                continue
+            nd.append(copy.deepcopy(ch))
+            tags.add(ch.tag)
+            added += 1
+    if not added:
+        return content
+    ET.indent(new_root, space=" ")
+    return ET.tostring(new_root, encoding="unicode") + "\n"
+
+
 def write_sidecar(raw_path: str | Path, content: str, overwrite: bool = False) -> str:
     """Ghi .xmp cạnh ảnh. Không bao giờ đè file bạn đã chỉnh nếu không cho phép;
     khi đè thì giữ bản cũ thành .xmp.bak. -> 'ghi' | 'bo-qua' | 'de'"""
@@ -356,6 +564,7 @@ def write_sidecar(raw_path: str | Path, content: str, overwrite: bool = False) -
         if not bak.exists():
             shutil.copy2(old, bak)
         status = "de"
+        content = carry_meta(old, content)
     tmp = target.with_name(target.name + ".tmp")
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(target)

@@ -338,6 +338,7 @@ def load(path: str | Path) -> dict:
         m = pickle.load(f)
     if m.get("format") != FORMAT_VERSION:
         raise SystemExit("File phong cách không đúng phiên bản, hãy học lại.")
+    m["templates"] = {k: xmp.clean_template(v) for k, v in m.get("templates", {}).items()}
     return m
 
 

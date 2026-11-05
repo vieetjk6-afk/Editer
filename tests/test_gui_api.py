@@ -1,5 +1,6 @@
 """Test phần "não" của giao diện (gui/api.py) — không cần mở cửa sổ."""
 import os
+import re
 import sys
 import tempfile
 import time
@@ -58,6 +59,27 @@ def main(tmp: Path) -> None:
     assert a0["goc"].startswith("data:image") and a0["ket_qua"].startswith("data:image"), "ảnh trước/sau phải là ảnh nhỏ"
     assert any("đã đọc" in line for line in st["tat_ca"]), "phải nhận được dòng tiến độ"
     assert len(list(job.glob("*.xmp"))) == 4
+
+    # Đồng bộ từ ảnh đã chỉnh: bạn mở IMG_0001 trong Camera Raw, cân lại, bấm Done (Camera Raw ghi lại .xmp)
+    from editer_anh import ps
+    side = job / "IMG_0001.xmp"
+    text = re.sub(r'x:xmptk="Editer[^"]*"', 'x:xmptk="Adobe XMP Core 9.1"', side.read_text(encoding="utf-8"))
+    side.write_text(text.replace("<rdf:Description ", '<rdf:Description crs:RawFileName="IMG_0001.dng" ', 1),
+                    encoding="utf-8")
+    f = api.xem_thu_muc(str(job))
+    assert f["so_ban_chinh"] == 1 and f["so_xmp"] == 4, {k: v for k, v in f.items() if k != "anh"}
+    opened, real_open = [], ps.open_files
+    ps.open_files = lambda files, limit=60: (opened.extend(files), len(files))[1]
+    try:
+        r = api.mo_moi_canh(str(job))
+    finally:
+        ps.open_files = real_open
+    assert r["ok"] and [Path(p).name for p in opened] == ["IMG_0001.dng"] and r.get("ghi_chu"), (r, opened)
+    assert api.bat_dau("dong-bo", {"thu_muc": str(job)})["ok"]
+    st = wait(api)
+    assert st["loi"] is None, st["loi"]
+    rd = st["ket_qua"]
+    assert rd["so_mau"] == 1 and rd["ghi"] + rd["de"] == 3 and all(a["mau"] == "IMG_0001.dng" for a in rd["anh"]), rd
 
     # việc lỗi (không có Photoshop trên máy test) -> báo lỗi rõ ràng, không làm sập
     api.bat_dau("kiem-tra-ps", {"raw": str(job / "IMG_0000.dng")})

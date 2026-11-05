@@ -52,6 +52,7 @@ jobs:
           python tests/test_gui_api.py
           python tests/test_capnhat.py
           python tests/test_wb.py
+          python tests/test_dongbo.py
           python -c "import webview; print('pywebview', webview.__version__ if hasattr(webview, '__version__') else '?')"
           python tests/test_e2e.py "$env:RUNNER_TEMP\e2e"
 
@@ -73,6 +74,22 @@ jobs:
           Write-Output $out
           if ($out -notmatch "AI phân vùng \(da, trắng, trời, cây\): BẬT") { throw "bản .exe không bật được AI phân vùng" }
           dist/editer-anh/editer-anh.exe --help | Out-Null
+
+      - name: Thử bản .exe đồng bộ từ ảnh đã chỉnh (AI tìm da + chia cảnh)
+        run: |
+          $db = "$env:RUNNER_TEMP\dongbo"
+          New-Item -ItemType Directory -Force $db | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\e2e\moi\*.dng" $db
+          Copy-Item "$env:RUNNER_TEMP\e2e\moi\*.xmp" $db
+          # giả lập: bạn mở 1 ảnh trong Camera Raw, chỉnh rồi bấm Done (Camera Raw ghi lại .xmp)
+          $ref = Get-ChildItem $db -Filter *.xmp | Sort-Object Name | Select-Object -First 1
+          $s = Get-Content $ref.FullName -Raw
+          $s = [regex]::new('<rdf:Description ').Replace($s, '<rdf:Description crs:RawFileName="x.dng" ', 1)
+          [IO.File]::WriteAllText($ref.FullName, ($s -replace 'x:xmptk="Editer[^"]*"', 'x:xmptk="Adobe XMP Core 9.1"'))
+          $out = dist/editer-anh/editer-anh.exe dong-bo $db | Out-String
+          Write-Output $out
+          if ($out -notmatch "XONG: đồng bộ 29 ảnh") { throw "bản .exe không đồng bộ được" }
+          if ($out -notmatch "AI tìm da người") { throw "bản .exe không bật được AI tìm da người" }
 
       - name: Thử giao diện cửa sổ (không bắt buộc — máy build có thể không có màn hình)
         continue-on-error: true

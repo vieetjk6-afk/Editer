@@ -319,6 +319,16 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
     return vals, curves, tpls, gui_info
 
 
+def cmd_dong_bo(a) -> dict:
+    from . import dongbo
+    folder = Path(a.thu_muc)
+    if not folder.is_dir():
+        raise SystemExit(f"Không thấy thư mục: {folder}")
+    res = dongbo.sync_folder(folder, _log, a.luong, use_ai=not a.khong_ai)
+    _log("Mở thư mục bằng Adobe Bridge hoặc Camera Raw để xem và chỉnh tiếp.")
+    return res
+
+
 def cmd_kiem_tra_ps(a) -> dict:
     ps_obj, msg = psmod.check()
     if not ps_obj:
@@ -397,9 +407,10 @@ def menu() -> None:
     _log("  1. Học phong cách từ các job đã chỉnh (RAW + .xmp)")
     _log("  2. Chỉnh một thư mục RAW theo phong cách đã học")
     _log("  3. Chép màu ảnh JPG mẫu cho một thư mục RAW")
-    _log("  4. Kiểm tra kết nối Photoshop (thử mở 1 ảnh RAW bằng Camera Raw)")
-    _log("  5. Thoát")
-    c = input("\nChọn (1-5): ").strip()
+    _log("  4. Đồng bộ từ ảnh bạn đã chỉnh (mỗi cảnh chỉnh tay 1 ảnh trong Camera Raw -> cả cảnh theo)")
+    _log("  5. Kiểm tra kết nối Photoshop (thử mở 1 ảnh RAW bằng Camera Raw)")
+    _log("  6. Thoát")
+    c = input("\nChọn (1-6): ").strip()
     try:
         if c == "1":
             dirs = _ask_many("Kéo thả các thư mục job đã chỉnh vào đây", True)
@@ -426,6 +437,10 @@ def menu() -> None:
                 args += ["--luu-preset", name]
             main(args)
         elif c == "4":
+            _log("Trước đó: mở mỗi cảnh 1 ảnh trong Camera Raw, chỉnh đến khi ưng, bấm Done (lưu .xmp).")
+            d = _ask_path("Kéo thả thư mục RAW của job: ", True)
+            main(["dong-bo", d])
+        elif c == "5":
             f = _ask_path("Kéo thả 1 file RAW (NEF/ARW/CR3...) vào đây: ", False)
             main(["kiem-tra-photoshop", f])
     except SystemExit as e:
@@ -486,6 +501,12 @@ def main(argv=None) -> None:
     c.add_argument("--khong-ai", action="store_true", help="không dùng AI hiểu ảnh")
     c.add_argument("--luong", type=int, default=min(8, os.cpu_count() or 4))
     c.set_defaults(func=cmd_chinh)
+
+    d = sub.add_parser("dong-bo", help="đồng bộ từ ảnh bạn đã chỉnh tay (mỗi cảnh 1 ảnh) sang cả cảnh")
+    d.add_argument("thu_muc")
+    d.add_argument("--khong-ai", action="store_true", help="không dùng AI (chia cảnh theo giờ chụp, sáng theo cả ảnh)")
+    d.add_argument("--luong", type=int, default=min(8, os.cpu_count() or 4))
+    d.set_defaults(func=cmd_dong_bo)
 
     k = sub.add_parser("kiem-tra-photoshop", help="kiểm tra kết nối Photoshop (và thử dựng 1 ảnh RAW)")
     k.add_argument("anh", nargs="?")

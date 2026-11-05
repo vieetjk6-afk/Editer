@@ -867,7 +867,7 @@ def brightness(preview_u8: np.ndarray, regmap: np.ndarray | None = None) -> floa
     lin = color.srgb_to_linear(preview_u8.reshape(-1, 3).astype(np.float64) / 255.0)
     y = lin @ np.array([0.2126, 0.7152, 0.0722])
     if regmap is not None:
-        skin = regmap.reshape(-1) == SKIN
+        skin = np.isin(regmap.reshape(-1), SKIN_SET)     # mặt + da người
         if skin.mean() > 0.005:
             return float(np.median(y[skin])) + 1e-4
     return float(np.median(y)) + 1e-4

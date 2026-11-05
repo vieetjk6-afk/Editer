@@ -36,6 +36,7 @@ class Photo:
     fnumber: float | None = None
     focal: float | None = None
     flash: float | None = None          # 1 = có nháy flash
+    lens: str | None = None             # tên ống kính (EXIF LensModel)
     as_shot_temp: float | None = None
     as_shot_tint: float | None = None
     preview: np.ndarray | None = field(default=None, repr=False)  # uint8 HxWx3 sRGB (CHƯA xoay)
@@ -134,6 +135,9 @@ def _exif(path: Path, ph: Photo) -> None:
     ph.shutter = _ratio(g("EXIF ExposureTime")) or ph.shutter
     ph.fnumber = _ratio(g("EXIF FNumber")) or ph.fnumber
     ph.focal = _ratio(g("EXIF FocalLength")) or ph.focal
+    lens = g("EXIF LensModel")
+    if lens and str(lens).strip(" \x00"):
+        ph.lens = str(lens).strip(" \x00")
     fl = _ratio(g("EXIF Flash"))
     if fl is not None:
         ph.flash = float(int(fl) & 1)

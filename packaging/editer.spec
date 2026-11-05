@@ -13,7 +13,7 @@ datas = [
     (os.path.join(ROOT, "editer_anh", "gui", "index.html"), os.path.join("editer_anh", "gui")),
 ]
 binaries = []
-hidden = ["win32com.client", "pythoncom", "pywintypes", "editer_anh.gui", "editer_anh.gui.api"]
+hidden = ["win32com.client", "pythoncom", "pywintypes", "editer_anh.gui", "editer_anh.gui.api", "editer_anh.dongbo"]
 for pkg in ("sklearn", "rawpy", "onnxruntime", "webview", "pythonnet", "clr_loader"):
     try:
         d, b, h = collect_all(pkg)

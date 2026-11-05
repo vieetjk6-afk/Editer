@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.9)
+## Editer Ảnh (bản 0.10)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
@@ -19,14 +19,35 @@ Giao diện (0.4, `editer_anh/gui/`): pywebview (Edge WebView2) + `index.html`; 
 Hai file .exe dùng chung thư viện, đóng gói bằng `packaging/editer.spec`.
 Không cần cài Python. Cách dùng xem `packaging/HUONG-DAN.txt`.
 
-Có 3 chức năng:
+Có 4 chức năng:
 1. **Học phong cách** từ các job đã chỉnh (RAW + `.xmp`). Look nền (profile, HSL, curve,
    mask AI) lấy từ một file `.xmp` tiêu biểu, riêng cho từng đời máy. Phần chỉnh riêng
    từng tấm (nhiệt độ màu, tint, exposure, contrast…) do mô hình học. Học xong tool báo
    độ lệch trung bình, đo bằng kiểm tra chéo trên chính ảnh của bạn.
 2. **Chỉnh theo phong cách**: ghi `.xmp` cho thư mục RAW mới. Ảnh cùng cảnh (chia theo
    giờ chụp) được kéo về cùng tông màu.
-3. **Chép màu theo JPG mẫu** (0.3, `editer_anh/look.py`):
+3. **Đồng bộ từ ảnh đã chỉnh** (0.10, `editer_anh/dongbo.py`): bạn chỉnh tay 1 ảnh mỗi cảnh trong
+   Camera Raw, tool áp đúng thông số đó cho phần còn lại của cảnh (như Sync của Lightroom) và chỉ cân lại
+   từng ảnh. Không phải đoán màu từ ảnh của người khác nên cách này chắc chắn đúng màu nhất.
+   - Ảnh mẫu = `.xmp` không do tool ghi, hoặc tool ghi nhưng thông số Camera Raw đã đổi. Dấu vân tay
+     `editer:CrsHash` cho biết điều đó, nên Bridge / Photo Mechanic gắn sao không làm `.xmp` của tool thành ảnh mẫu.
+   - Mỗi ảnh theo ảnh mẫu cùng cảnh, ưu tiên cùng máy rồi gần giờ chụp nhất. Cảnh chưa có ảnh mẫu thì
+     theo ảnh giống nội dung nhất (CLIP).
+   - WB tuyệt đối như ảnh mẫu, chỉ dịch phần As Shot chênh vượt 25 mired / 10 tint. Ảnh mẫu để As Shot
+     thì ảnh khác cũng As Shot.
+   - Exposure so độ sáng da người (AI) với log2(ISO·t/N²) theo kiểu "Match Total Exposures":
+     - hai cách lệch nhau ≤ 0,6 EV: theo thông số chụp;
+     - lệch hơn, hoặc có flash: theo da;
+     - không có da: theo thông số chụp; có flash thì theo độ sáng chung (×0,5, ±1 EV).
+   - `xmp.sync_template` bỏ những thứ chỉ đúng cho riêng tấm mẫu:
+     - crop, Upright, phối cảnh tay;
+     - xoá vết, chỉnh cục bộ theo vị trí (cọ tô, gradient);
+     - profile ống kính cụ thể khi khác ống kính (→ LensDefaults);
+     - CameraProfileDigest khi khác đời máy.
+
+     Mask AI và mask vùng màu thì giữ lại, Camera Raw tự tính lại trên từng ảnh.
+   - Ghi đè `.xmp` cũ thì giữ nguyên sao, nhãn màu, từ khoá (`xmp.carry_meta`).
+4. **Chép màu theo JPG mẫu** (0.3, `editer_anh/look.py`):
    - AI phân vùng (SegFormer, ONNX) tìm **da, trắng/trung tính, trời, cây** trên ảnh mẫu và
      ảnh RAW. Các số đo cần khớp: màu da, điểm trắng, trời, cây, phân bố sáng tối, ám màu
      vùng tối/sáng, 8 dải màu.

@@ -2,8 +2,32 @@ EDITER ẢNH — HƯỚNG DẪN NHANH
 ============================
 
 Bấm đúp  "Editer Anh.exe"  -> cửa sổ giao diện (bấm nút, kéo thả ảnh/thư mục vào là chạy).
-Bên trái có 5 mục: Chép màu từ ảnh mẫu · Chỉnh theo phong cách · Học phong cách · Kiểm tra Photoshop
-· Cập nhật. Kết quả hiện ngay trong cửa sổ: độ lệch màu (ΔE) từng vùng + ảnh mẫu / gốc / sau.
+Bên trái có 6 mục: Chép màu từ ảnh mẫu · Đồng bộ từ ảnh đã chỉnh · Chỉnh theo phong cách · Học phong
+cách · Kiểm tra Photoshop · Cập nhật. Kết quả hiện ngay trong cửa sổ.
+
+MỚI Ở BẢN 0.10 — "ĐỒNG BỘ TỪ ẢNH ĐÃ CHỈNH" (cách chắc chắn đúng màu nhất)
+ Chép màu từ JPG phải ĐOÁN thông số từ ảnh của người khác (khác máy, khác ánh sáng, khác cảnh) nên
+ có lúc lệch. Cách này không đoán: BẠN chỉnh 1 ảnh mỗi cảnh, tool làm phần lặp lại cho cả cảnh —
+ giống "Sync Settings" của Lightroom nhưng tự cân lại từng ảnh.
+  1. Mục "Đồng bộ từ ảnh đã chỉnh" -> chọn thư mục job -> bấm "Mở 1 ảnh mỗi cảnh trong Photoshop"
+     (tool chia cảnh theo giờ chụp, mở ảnh giữa mỗi cảnh; hoặc tự mở ảnh bạn thích bằng Bridge).
+  2. Trong Camera Raw chỉnh từng ảnh đó đến khi ưng (WB, tone, HSL, color grading, mask AI da / trời /
+     chủ thể...) rồi bấm DONE (lưu .xmp). Muốn đỡ công: chạy "Chép màu" trước rồi chỉ cân lại.
+  3. Quay lại bấm "Đồng bộ". Mỗi ảnh còn lại theo ảnh bạn chỉnh CÙNG CẢNH (cùng máy, gần giờ chụp
+     nhất; cảnh chưa chỉnh thì theo ảnh giống nội dung nhất):
+      - lấy ĐÚNG mọi thông số: profile, curve, HSL, color grading, chi tiết, mask AI (Camera Raw tự tính
+        lại mask trên từng ảnh — mở ảnh thấy dấu ! ở mask thì bấm Update);
+      - nhiệt độ màu / tint GIỮ NGUYÊN như ảnh bạn chỉnh (cùng cảnh = cùng ánh sáng), chỉ dịch khi cân bằng
+        trắng của máy chênh lớn (ánh sáng đổi thật); ảnh mẫu để As Shot thì ảnh khác cũng As Shot;
+      - exposure: so độ sáng DA NGƯỜI (AI) với thông số chụp ISO / tốc độ / khẩu; chụp flash thì theo da;
+      - KHÔNG mang sang thứ chỉ đúng cho tấm mẫu: cắt khung, xoay / phối cảnh, xoá vết, cọ tô, gradient;
+        profile ống kính tự nhận theo ống kính từng ảnh.
+ - Ảnh bạn đã chỉnh không bao giờ bị ghi đè. Chỉnh thêm vài ảnh rồi bấm Đồng bộ lại bao nhiêu lần cũng
+   được (ảnh tool ghi được ghi lại, bản cũ giữ ở .xmp.bak). Sao, nhãn màu, từ khoá (Bridge, Photo
+   Mechanic) giữ nguyên. Bấm "Mở 1 ảnh mỗi cảnh" lần nữa: chỉ mở các cảnh CHƯA có ảnh bạn chỉnh.
+ - Dòng lệnh:  editer-anh.exe dong-bo "D:\Job\CoDau"   (thêm --khong-ai nếu máy yếu)
+ - Mẫu phong cách (Chỉnh theo phong cách / Chép màu) cũng không còn mang profile ống kính, phối cảnh
+   của riêng một tấm ảnh cũ sang ảnh mới.
 
 MỚI Ở BẢN 0.9 — SỬA THEO NHẬT KÝ THẬT (ảnh mẫu rèm đỏ / rèm trắng / rạp ngoài trời)
  - KHÔNG ép độ sáng theo cả ảnh mẫu: ảnh mẫu rèm đỏ tối chỉ có khuôn mặt là sáng -> bản cũ ép rèm
