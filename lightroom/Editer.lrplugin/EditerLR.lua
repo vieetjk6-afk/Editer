@@ -3,6 +3,7 @@ phân tích (đọc file RAW, AI chia cảnh / tìm da), áp kết quả thẳng
 
 local LrApplication = import 'LrApplication'
 local LrDialogs = import 'LrDialogs'
+local LrExportSession = import 'LrExportSession'
 local LrFileUtils = import 'LrFileUtils'
 local LrPathUtils = import 'LrPathUtils'
 local LrProgressScope = import 'LrProgressScope'
@@ -338,6 +339,202 @@ function M.dongBo()
   LrDialogs.message(TITLE, msg, 'info')
 end
 
+---------------------------------------------------------------------------- CHÉP MÀU TỪ ẢNH JPG MẪU
+local function exportJpeg(photo, dir, size)
+  local session = LrExportSession {
+    photosToExport = { photo },
+    exportSettings = {
+      LR_export_destinationType = 'specificFolder',
+      LR_export_destinationPathPrefix = dir,
+      LR_export_useSubfolder = false,
+      LR_format = 'JPEG',
+      LR_jpeg_quality = 0.92,
+      LR_export_colorSpace = 'sRGB',
+      LR_size_doConstrain = true,
+      LR_size_resizeType = 'wh',
+      LR_size_maxWidth = size,
+      LR_size_maxHeight = size,
+      LR_size_units = 'pixels',
+      LR_size_doNotEnlarge = true,
+      LR_collisionHandling = 'overwrite',
+      LR_renamingTokensOn = false,
+      LR_outputSharpeningOn = false,
+      LR_minimizeEmbeddedMetadata = true,
+      LR_reimportExportedPhoto = false,
+      LR_useWatermark = false,
+    },
+  }
+  session:doExportOnCurrentTask()
+  local path, err
+  for _, rendition in session:renditions() do
+    local ok, p = rendition:waitForRender()
+    if ok then path = p else err = p end
+  end
+  return path, err
+end
+
+local function applyOne(catalog, photo, s, name)
+  local ok, err = pcall(function()
+    catalog:withWriteAccessDo(name, function() photo:applyDevelopSettings(s, name) end, { timeout = 60 })
+  end)
+  return ok, err
+end
+
+-- Editer xin dựng thử 1 ảnh: áp thông số thử vào ảnh, (mask AI: nhờ Lightroom tính), xuất JPEG nhỏ.
+local function serveRender(catalog, items, req, dir, touched, notes)
+  local it = items[(req.i or -1) + 1]
+  if not it then return { ok = false, loi = 'không thấy ảnh số ' .. tostring(req.i) } end
+  touched[it.id] = it
+  local s, hasMask = Core.copySettings(req.thong_so or {}, it.settings)
+  local ok, err = applyOne(catalog, it.photo, s, 'Editer: thử màu')
+  if not ok and hasMask then
+    notes.mask_loi = tostring(err)
+    hasMask = false
+    ok, err = applyOne(catalog, it.photo, Core.withoutMasks(s), 'Editer: thử màu')
+  end
+  if not ok then return { ok = false, loi = 'Lightroom không nhận thông số: ' .. tostring(err) } end
+  if hasMask and hasMethod(it.photo, 'updateAISettings') then
+    pcall(function()
+      catalog:withWriteAccessDo('Editer: tính mask AI', function() it.photo:updateAISettings() end, { timeout = 60 })
+    end)
+  end
+  local path, xerr = exportJpeg(it.photo, dir, req.co_anh or 1024)
+  if not path then return { ok = false, loi = 'Lightroom không xuất được ảnh: ' .. tostring(xerr) } end
+  local now = it.photo:getDevelopSettings() or {}
+  return { ok = true, anh = path, temp = now.Temperature, tint = now.Tint }
+end
+
+function M.chepMau()
+  local catalog = LrApplication.activeCatalog()
+  local photos = targetPhotos(catalog)
+  if #photos < 1 then
+    LrDialogs.message(TITLE, 'Chọn các ảnh cần chép màu (hoặc Ctrl+A cả thư mục) rồi chạy lại.', 'info')
+    return
+  end
+  local jpgs = LrDialogs.runOpenPanel {
+    title = 'Editer: chọn ảnh JPG mẫu (màu bạn muốn theo) — chọn được nhiều ảnh, mỗi cảnh 1 ảnh càng tốt',
+    canChooseFiles = true, canChooseDirectories = false, allowsMultipleSelection = true,
+    fileTypes = { 'jpg', 'jpeg', 'png', 'tif', 'tiff' },
+  }
+  if not jpgs or #jpgs == 0 then return end
+  local progress = LrProgressScope { title = 'Editer: chép màu từ ảnh mẫu' }
+  progress:setCaption('Đọc thông số trong catalog...')
+  local items, other = collect(photos, progress)
+  if #items == 0 then
+    progress:done()
+    LrDialogs.message(TITLE, 'Không có ảnh RAW nào trong các ảnh đã chọn.', 'info')
+    return
+  end
+  local cmd = helperCmd()
+  if not cmd then
+    progress:done()
+    LrDialogs.message(TITLE, 'Chưa tìm thấy chương trình Editer.\nMở "Editer Anh.exe" → mục "Dùng trong Lightroom" '
+      .. '→ bấm "Cài vào Lightroom" (chỉ cần làm 1 lần), rồi chạy lại.', 'critical')
+    return
+  end
+  local base = LrPathUtils.child(dataDir(), 'lightroom')
+  local work = LrPathUtils.child(base, 'dung-thu')
+  if not LrFileUtils.exists(work) then LrFileUtils.createAllDirectories(work) end
+  local jobPath = LrPathUtils.child(base, 'viec-chep-mau.json')
+  local outPath = LrPathUtils.child(base, 'ket-qua-chep-mau.json')
+  local anh = {}
+  for _, it in ipairs(items) do anh[#anh + 1] = { path = it.path } end
+  writeFile(jobPath, Core.encode({ ai = true, anh = anh, mau_jpg = jpgs, lam_viec = work, co_anh = 1024 }))
+  pcall(os.remove, outPath)
+  for n = 1, 500 do
+    pcall(os.remove, LrPathUtils.child(work, 'xong-' .. n .. '.json'))
+  end
+  local args = {}
+  for _, a in ipairs(cmd) do args[#args + 1] = a end
+  args[#args + 1] = 'lr-chep-mau'
+  args[#args + 1] = jobPath
+  args[#args + 1] = outPath
+  local state = { done = false }
+  LrTasks.startAsyncTask(function()
+    state.code = LrTasks.execute(Core.commandLine(args, WIN_ENV))
+    state.done = true
+  end)
+  progress:setCaption(string.format('Editer đang phân tích %d ảnh, Lightroom dựng thử ảnh đại diện để đo màu...%s',
+    #items, WIN_ENV and ' Cửa sổ đen là Editer đang chạy — đừng đóng.' or ''))
+  local touched, notes, n = {}, {}, 1
+  while true do
+    local reqPath = LrPathUtils.child(work, 'yeu-cau-' .. n .. '.json')
+    local s = readFile(reqPath)
+    if s then
+      local ok, req = pcall(Core.decode, s)
+      local resp
+      if ok and type(req) == 'table' then
+        resp = serveRender(catalog, items, req, work, touched, notes)
+      else
+        resp = { ok = false, loi = 'yêu cầu dựng thử bị lỗi' }
+      end
+      local donePath = LrPathUtils.child(work, 'xong-' .. n .. '.json')
+      writeFile(donePath .. '.tmp', Core.encode(resp))
+      pcall(os.remove, donePath)
+      os.rename(donePath .. '.tmp', donePath)
+      progress:setCaption(string.format('Lightroom đã dựng thử %d ảnh...', n))
+      n = n + 1
+    elseif state.done then
+      break
+    else
+      LrTasks.sleep(0.2)
+    end
+  end
+  -- ảnh đại diện: trả lại thông số gốc trước khi áp kết quả
+  for _, it in pairs(touched) do
+    local orig = Core.deepcopy(it.settings)
+    if orig.MaskGroupBasedCorrections == nil then orig.MaskGroupBasedCorrections = {} end
+    applyOne(catalog, it.photo, orig, 'Editer: trả lại thông số gốc')
+  end
+  local out = readFile(outPath)
+  local okd, res = false, nil
+  if out then okd, res = pcall(Core.decode, out) end
+  if not okd or type(res) ~= 'table' or not res.ok then
+    progress:done()
+    LrDialogs.message(TITLE, (type(res) == 'table' and res.loi) and tostring(res.loi)
+      or ('Editer không chạy được (mã ' .. tostring(state.code) .. ').'), 'critical')
+    return
+  end
+  progress:setCaption('Áp màu cho cả lô...')
+  local applied, failed, maskDropped, loi = 0, {}, 0, {}
+  catalog:withWriteAccessDo('Editer: chép màu từ ảnh mẫu', function()
+    for _, d in ipairs(res.anh or {}) do
+      local it = items[(d.i or -1) + 1]
+      if it and d.loi then
+        loi[#loi + 1] = it.name .. ': ' .. tostring(d.loi)
+      elseif it and d.thong_so then
+        local s, hasMask = Core.copySettings(d.thong_so, it.settings)
+        local ok, e = pcall(function() it.photo:applyDevelopSettings(s, 'Editer: chép màu') end)
+        if not ok and hasMask then
+          maskDropped = maskDropped + 1
+          ok, e = pcall(function() it.photo:applyDevelopSettings(Core.withoutMasks(s), 'Editer: chép màu') end)
+        end
+        if ok then applied = applied + 1 else failed[#failed + 1] = it.name .. ': ' .. tostring(e) end
+      end
+    end
+  end, { timeout = 60 })
+  progress:done()
+  local msg = string.format('Đã chép màu cho %d ảnh.\nMuốn hoàn tác: Edit → Undo "Editer: chép màu từ ảnh mẫu".\n\n'
+    .. '%s %s\n(ΔE dưới 2: mắt gần như không phân biệt; 2-5: gần; trên 5: còn khác rõ)', applied,
+    res.do_tren_lightroom and 'Đo trên ảnh Lightroom dựng:' or 'Ước lượng (chưa đo được trên Lightroom):',
+    tostring(res.bao_cao or ''))
+  if res.giu_goc then
+    msg = msg .. '\n\nKhông tìm được thông số làm ảnh giống mẫu hơn ảnh gốc — đã giữ màu gốc cho nhóm đó.'
+  end
+  if maskDropped > 0 or notes.mask_loi then
+    msg = msg .. '\n\nLightroom không nhận mask "Editer - Da/Nền" — chỉ chỉnh toàn ảnh.'
+  end
+  msg = msg .. '\n\nChưa ưng ảnh nào: chỉnh tay ảnh đó (hoặc 1 ảnh mỗi cảnh) rồi chạy "Editer: 2. Đồng bộ cả cảnh".'
+  if #loi > 0 then
+    msg = msg .. string.format('\n\nBỏ qua %d ảnh không đọc được file: %s', #loi, table.concat(loi, '; '):sub(1, 300))
+  end
+  if #failed > 0 then
+    msg = msg .. string.format('\n\nLightroom không nhận %d ảnh: %s', #failed, table.concat(failed, '; '):sub(1, 300))
+  end
+  if other > 0 then msg = msg .. string.format('\n\n(Bỏ qua %d ảnh không phải RAW.)', other) end
+  LrDialogs.message(TITLE, msg, 'info')
+end
+
 function M.huongDan()
   LrDialogs.message('Editer trong Lightroom Classic',
     'Bạn chỉnh tay 1 ảnh mỗi cảnh, Editer làm phần lặp lại cho cả cảnh — ngay trong catalog đang mở.\n\n'
@@ -348,7 +545,10 @@ function M.huongDan()
     .. 'Mỗi ảnh lấy ĐÚNG thông số ảnh bạn chỉnh cùng cảnh; nhiệt độ màu giữ như ảnh mẫu (chỉ dịch khi ánh '
     .. 'sáng đổi thật); độ sáng cân theo da người + ISO / tốc độ / khẩu. Không mang sang: khung cắt, phối cảnh, '
     .. 'xoá vết, cọ tô, gradient. Ảnh bạn đã chỉnh không bị đụng tới. Chỉnh thêm rồi chạy lại bước 2 bao nhiêu '
-    .. 'lần cũng được.\n\nNhật ký: ' .. logPath(), 'info')
+    .. 'lần cũng được.\n\nCHÉP MÀU TỪ ẢNH JPG MẪU: chọn ảnh (Ctrl+A) → "Editer: Chép màu từ ảnh JPG mẫu…" → chọn 1 hoặc vài '
+    .. 'ảnh JPG có màu bạn muốn. Lightroom dựng thử vài ảnh đại diện để Editer đo và sửa dần cho giống mẫu, rồi áp '
+    .. 'cho cả lô. Cách chắc ăn nhất vẫn là: chép màu xong, chỉnh lại 1 ảnh mỗi cảnh cho ưng rồi chạy bước 2.'
+    .. '\n\nNhật ký: ' .. logPath(), 'info')
 end
 
 return M

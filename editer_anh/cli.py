@@ -231,7 +231,8 @@ def _blend(lk: look.Look, shots: list, cams: list, s: float):
     return mix, out
 
 
-def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, embs, emb_model):
+def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, embs, emb_model, factory=None):
+    """factory: bộ dựng ảnh thật có sẵn (vd Lightroom dựng qua plugin) thay cho Photoshop."""
     from dataclasses import replace as _replace
 
     from . import ai
@@ -250,14 +251,13 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
     found = ref.sel.found()
     _log("Ảnh mẫu: thấy " + (", ".join(found) if found else "không có vùng đặc biệt (chỉ khớp màu chung)"))
     ps_obj = None
-    if a.photoshop:
+    if a.photoshop and factory is None:
         _log("Đang kết nối Photoshop...")
         ps_obj, msg = psmod.check()
         if ps_obj:
             _log(f"  Đã kết nối {msg} — Camera Raw thật sẽ dựng ảnh để kiểm tra màu.")
         else:
             _log(f"  Không kết nối được Photoshop ({msg}) — dùng ước lượng mô phỏng.")
-    factory = None
     if ps_obj is not None:
         work = psmod.workdir_for(folder)
 
@@ -274,7 +274,7 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
                 return img
             render.as_shot = {}
             return render
-    n_reps = a.so_anh_dai_dien or (4 if ps_obj else 6)
+    n_reps = a.so_anh_dai_dien or (4 if (ps_obj is not None or factory is not None) else 6)
     try:
         looks, shots, info = look.copy_color(photos, scenes, embs, ref, segment, _log, factory,
                                              n_reps, a.so_luot, seg_all)
@@ -332,8 +332,8 @@ def cmd_dong_bo(a) -> dict:
 def cmd_lr(a) -> dict:
     """Plugin Lightroom gọi: lr-canh / lr-dong-bo <job.json> <out.json>."""
     from . import lightroom
-    res = lightroom.run_job("canh" if a.lenh == "lr-canh" else "dong-bo", a.job, a.ra, _log, a.luong,
-                            use_ai=not a.khong_ai)
+    kind = {"lr-canh": "canh", "lr-chep-mau": "chep-mau"}.get(a.lenh, "dong-bo")
+    res = lightroom.run_job(kind, a.job, a.ra, _log, a.luong, use_ai=not a.khong_ai)
     if not res.get("ok"):
         raise SystemExit(1)
     return res
@@ -527,7 +527,8 @@ def main(argv=None) -> None:
     d.set_defaults(func=cmd_dong_bo)
 
     for name, hlp in (("lr-dong-bo", "(plugin Lightroom gọi) đồng bộ trong catalog"),
-                      ("lr-canh", "(plugin Lightroom gọi) chia cảnh, chọn ảnh mẫu")):
+                      ("lr-canh", "(plugin Lightroom gọi) chia cảnh, chọn ảnh mẫu"),
+                      ("lr-chep-mau", "(plugin Lightroom gọi) chép màu từ ảnh JPG mẫu")):
         q = sub.add_parser(name, help=hlp)
         q.add_argument("job")
         q.add_argument("ra")

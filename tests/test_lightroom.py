@@ -92,7 +92,16 @@ def test_helper(tmp: Path, paths: list[Path]) -> None:
     sc = cli.main(["lr-canh", str(jp), str(op), "--khong-ai"])
     assert sc["ok"] and len(sc["canh"]) == 2 and [c["anh"] for c in sc["canh"]] == [[0, 1, 2], [3, 4, 5]], sc
     assert [c["mau"] for c in sc["canh"]] == [1, 4]
-    print("[lightroom] phần phân tích (lr-dong-bo / lr-canh): OK")
+    from PIL import Image
+    import skimage.data as skd
+    Image.fromarray(skd.coffee()).save(tmp / "mau-cafe.jpg", quality=92)
+    jp.write_text(json.dumps({"ai": False, "anh": [{"path": str(p)} for p in paths],
+                              "mau_jpg": [str(tmp / "mau-cafe.jpg")]}), encoding="utf-8")
+    cm = cli.main(["lr-chep-mau", str(jp), str(op), "--khong-ai"])
+    assert cm["ok"] and len(cm["anh"]) == 6 and not cm["do_tren_lightroom"], cm.get("loi")
+    st = cm["anh"][0]["thong_so"]
+    assert "CameraProfile" not in st and "ProcessVersion" not in st and st["ToneCurveName2012"] == "Custom"
+    print("[lightroom] phần phân tích (lr-dong-bo / lr-canh / lr-chep-mau): OK")
 
 
 def lua_runtime():
@@ -266,6 +275,99 @@ def test_plugin(tmp: Path, paths: list[Path]) -> None:
     print("[lightroom] plugin trong Lightroom giả: đồng bộ, lần 2, chỉnh thêm 1 ảnh, bước 1 chọn ảnh mẫu: OK")
 
 
+def test_copy(tmp: Path) -> None:
+    """Chép màu từ JPG trong Lightroom giả: Editer xin Lightroom dựng thử ảnh đại diện (xuất JPEG) để đo và sửa,
+    rồi áp màu cho cả lô; ảnh đại diện trả lại thông số gốc trước khi áp kết quả."""
+    import time
+
+    import numpy as np
+    from PIL import Image
+    from editer_anh import look
+    from editer_anh.look import Look, Shot
+    from test_look import FAKE, render as sim_render, scene
+    folder = tmp / "chep"
+    folder.mkdir()
+    paths = []
+    for i in range(5):
+        p = folder / f"IMG_{i:04d}.dng"
+        make_dng(p, 3800 + 100 * i, 4, seed=10 + i, exposure=0.7)
+        os.utime(p, (1_700_000_000 + 20 * i,) * 2)
+        paths.append(p)
+    ref_img, _ = scene(31)
+    ref_lk = Look(curve=np.array([20.0, 60, 100, 158, 200, 240]), grade=np.array([-4, -6, 0, 0, 6, 10.0]),
+                  sat=np.array([0, 10, 0, -40, 0, -20, 0, 0.0]))
+    Image.fromarray(sim_render(ref_img, ref_lk, Shot(1e6 / 5500, 0.0, 0.1), FAKE)).save(tmp / "mau.jpg", quality=95)
+
+    procs, renders = {}, []
+
+    def split_cmd(cmd):
+        line = cmd
+        if os.name == "nt":
+            assert line.startswith('""') and line.endswith('""')
+            line = line[1:-1]
+        return re.findall(r'"([^"]*)"', line)
+
+    def py_spawn(cmd):
+        procs[len(procs) + 1] = subprocess.Popen(split_cmd(cmd), env={**os.environ, "PYTHONUTF8": "1"})
+        return len(procs)
+
+    def py_render(path, settings_json, out, size):
+        """Lightroom (Camera Raw) giả: áp thông số toàn ảnh, không áp mask."""
+        st = json.loads(settings_json)
+        renders.append(st)
+        crs = {k: str(v) for k, v in st.items() if isinstance(v, (int, float, str)) and not isinstance(v, bool)}
+        flat = st.get("ToneCurvePV2012") or []
+        curve = [(int(flat[k]), int(flat[k + 1])) for k in range(0, len(flat) - 1, 2)] or None
+        lk, sh = look.from_crs(crs, curve)
+        ph = raw.load(path)
+        cam = Shot(1e6 / (ph.as_shot_temp * 1.04), ph.as_shot_tint + 3, 0.0)
+        if sh.mired is None:
+            sh = Shot(cam.mired, cam.tint, sh.ev)
+        base = sim_render(ph.preview, Look(curve=np.array([0.0, 40, 92, 166, 216, 255]), sat=np.full(8, 12.0)),
+                          cam, look.DEFAULT, base_shot=cam)
+        im = Image.fromarray(sim_render(base, lk, Shot(sh.mired, sh.tint, sh.ev + 0.15), FAKE, base_shot=cam))
+        im.thumbnail((int(size), int(size)))
+        im.save(out, quality=95)
+
+    lua = lua_runtime()
+    g = lua.globals()
+    g.FAKE_HOME = str(Path.home())
+    g.py_spawn = py_spawn
+    g.py_poll = lambda h: procs[h].poll()
+    g.py_sleep = lambda t: time.sleep(float(t))
+    g.py_render = py_render
+    g.py_execute = lambda cmd: subprocess.run(split_cmd(cmd)).returncode
+    g.py_exists = lambda path: "file" if Path(path).is_file() else "directory" if Path(path).is_dir() else False
+    g.py_mkdirs = lambda path: os.makedirs(path, exist_ok=True)
+    g._PLUGIN = lua.table_from({"path": str(PLUGIN)})
+    lua.execute(f"package.path = '{PLUGIN.as_posix()}/?.lua;{(ROOT / 'tests').as_posix()}/?.lua;' .. package.path")
+    fake = lua.eval("require('lr_fake_sdk')")
+    g.WIN_ENV = os.name == "nt"
+    tab = lua.eval("function(s) return require('EditerCore').decode(s) end")
+    photos = []
+    for i, p in enumerate(paths):
+        ph = lua.eval("function(f, id, path, s) return f.photo(id, path, s) end")(
+            fake, 300 + i, str(p), tab(json.dumps(lr_settings(temp=i * 977, edited=False))))
+        r = raw.load(p)
+        ph.as_shot = lua.table_from({"temp": r.as_shot_temp * 1.04, "tint": r.as_shot_tint + 3})
+        photos.append(ph)
+    lua.eval("function(c, ps) for i, p in ipairs(ps) do c.photos[i] = p end end")(fake.catalog, lua.table_from(photos))
+    fake.open_panel_result = lua.table_from([str(tmp / "mau.jpg")])
+    lua.execute("require('EditerLR').chepMau()")
+    msg = [m.msg for m in fake.messages.values()][-1]
+    assert "Đã chép màu cho 5 ảnh" in msg and "Đo trên ảnh Lightroom dựng" in msg, msg
+    assert fake.exports >= 2 and len(renders) == fake.exports, "Editer phải nhờ Lightroom dựng thử để đo"
+    assert any(r.get("WhiteBalance") == "As Shot" for r in renders), "phải đo ảnh gốc As Shot trước"
+    for i, ph in enumerate(photos):
+        st = json.loads(lua.eval("function(p) return require('EditerCore').encode(p._settings) end")(ph))
+        assert st["ToneCurveName2012"] == "Custom" and len(st["ToneCurvePV2012"]) % 2 == 0, st.get("ToneCurvePV2012")
+        assert "SplitToningHighlightHue" in st and "HueAdjustmentRed" in st
+        assert st["CameraProfile"] == "Adobe Standard" and st["LensProfileName"] == f"Adobe (Lens {i * 977})", \
+            "giữ profile / ống kính của ảnh"
+        assert ph.history == "Editer: chép màu"
+    print(f"[lightroom] chép màu từ JPG: Lightroom dựng thử {fake.exports} lần, áp màu 5 ảnh: OK")
+
+
 def test_install(tmp: Path) -> None:
     os.environ["APPDATA"] = str(tmp / "appdata")
     lightroom.modules_dir().parent.mkdir(parents=True)          # có Lightroom
@@ -291,6 +393,7 @@ def main(tmp: Path) -> None:
     test_helper(tmp, paths)
     test_core()
     test_plugin(tmp, paths)
+    test_copy(tmp)
     test_install(tmp)
 
 

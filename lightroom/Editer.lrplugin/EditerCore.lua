@@ -471,6 +471,45 @@ function M.pickReps(scenes, roles)
   return #scenes, done, todo
 end
 
+--- Thông số chép màu (từ editer-anh.exe) -> bảng áp vào ảnh. Mask "Editer - ..." mới thay mask Editer cũ,
+--- mask khác của bạn giữ nguyên.
+function M.copySettings(thongSo, current)
+  local s, editer = {}, nil
+  for k, v in pairs(thongSo) do
+    if k == 'Editer_mask' then editer = v else s[k] = deepcopy(v) end
+  end
+  local groups = current and current.MaskGroupBasedCorrections
+  local hadEditer = false
+  local keep = {}
+  if type(groups) == 'table' then
+    for _, corr in ipairs(groups) do
+      local name = type(corr) == 'table' and corr.CorrectionName or nil
+      if type(name) == 'string' and name:sub(1, 9) == 'Editer - ' then
+        hadEditer = true
+      else
+        keep[#keep + 1] = deepcopy(corr)
+      end
+    end
+  end
+  if editer and #editer > 0 then
+    for _, corr in ipairs(editer) do keep[#keep + 1] = deepcopy(corr) end
+    s.MaskGroupBasedCorrections = keep
+    s.EnableMaskGroupBasedCorrections = true
+  elseif hadEditer then
+    s.MaskGroupBasedCorrections = keep
+  end
+  return s, editer ~= nil and #editer > 0
+end
+
+--- Bỏ mask khỏi bảng thông số (khi Lightroom không nhận mask).
+function M.withoutMasks(s, current)
+  local t = {}
+  for k, v in pairs(s) do
+    if k ~= 'MaskGroupBasedCorrections' and k ~= 'EnableMaskGroupBasedCorrections' then t[k] = v end
+  end
+  return t
+end
+
 --- Dòng lệnh chạy chương trình (Windows: cmd.exe bỏ cặp ngoặc kép ngoài cùng -> phải bọc thêm 1 lớp).
 function M.commandLine(args, windows)
   local q = {}

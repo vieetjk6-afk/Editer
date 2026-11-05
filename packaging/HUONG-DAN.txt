@@ -11,6 +11,16 @@ BẠN XEM ẢNH BẰNG LIGHTROOM CLASSIC?  (lý do thường gặp của "không
  lưu thông số). Muốn thấy: trong Lightroom chọn các ảnh -> Metadata -> Read Metadata from Files (Đọc siêu
  dữ liệu từ tệp). Cách tiện hơn: dùng plugin bên dưới, Editer chỉnh thẳng trong catalog.
 
+MỚI Ở BẢN 0.12 — CHÉP MÀU TỪ ẢNH JPG MẪU NGAY TRONG LIGHTROOM CLASSIC
+ Chọn ảnh (Ctrl+A) -> Library -> Plug-in Extras -> "Editer: Chép màu từ ảnh JPG mẫu…" -> chọn 1 hoặc vài
+ ảnh JPG có màu bạn muốn (mỗi cảnh 1 ảnh mẫu càng tốt). Lightroom tự DỰNG THỬ vài ảnh đại diện (xuất JPEG
+ nhỏ vào thư mục tạm) để Editer đo màu Lightroom hiển thị thật và sửa dần cho giống mẫu — như dùng
+ Photoshop ở bản trước nhưng không cần Photoshop — rồi áp màu cho cả lô ngay trong catalog (Edit -> Undo
+ được). Giữ profile, ống kính, độ nét / khử nhiễu của ảnh; mask "Editer - Da/Nền" thêm cạnh mask của bạn.
+ Ảnh đại diện nhấp nháy vài lần trong lúc dựng thử là bình thường (lịch sử chỉnh có các bước "Editer: thử
+ màu", ảnh được trả lại thông số gốc trước khi áp kết quả). Chưa ưng: chỉnh lại 1 ảnh mỗi cảnh rồi chạy
+ "Editer: 2. Đồng bộ cả cảnh" — chắc ăn nhất.
+
 MỚI Ở BẢN 0.11 — DÙNG NGAY TRONG LIGHTROOM CLASSIC (chỉnh thẳng trong catalog đang mở)
  1. Mục "Dùng trong Lightroom" -> bấm "Cài vào Lightroom Classic" (1 lần) -> khởi động lại Lightroom.
     (Dòng lệnh: editer-anh.exe lr-cai. Plugin cài vào %APPDATA%\Adobe\Lightroom\Modules — Lightroom tự

@@ -93,7 +93,7 @@ jobs:
           if ($out -notmatch "XONG: đồng bộ 29 ảnh") { throw "bản .exe không đồng bộ được" }
           if ($out -notmatch "AI tìm da người") { throw "bản .exe không bật được AI tìm da người" }
 
-      - name: Thử bản .exe cho Lightroom (lr-dong-bo, lr-cai)
+      - name: Thử bản .exe cho Lightroom (lr-dong-bo, lr-chep-mau, lr-cai)
         run: |
           $files = Get-ChildItem "$env:RUNNER_TEMP\e2e\moi" -Filter *.dng | Sort-Object Name
           $anh = @()
@@ -109,6 +109,13 @@ jobs:
           $r = Get-Content "$env:RUNNER_TEMP\lr-ket-qua.json" -Raw -Encoding utf8 | ConvertFrom-Json
           Write-Output ("lr-dong-bo: ok=" + $r.ok + ", " + $r.anh.Count + " ảnh")
           if (-not $r.ok -or $r.anh.Count -ne 29) { throw "lr-dong-bo trả kết quả sai" }
+          $chep = @()
+          foreach ($f in $files) { $chep += @{ path = $f.FullName } }
+          @{ ai = $true; anh = $chep; mau_jpg = @("$env:RUNNER_TEMP\e2e\mau.jpg") } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\lr-chep.json"
+          dist/editer-anh/editer-anh.exe lr-chep-mau "$env:RUNNER_TEMP\lr-chep.json" "$env:RUNNER_TEMP\lr-chep-kq.json"
+          $c = Get-Content "$env:RUNNER_TEMP\lr-chep-kq.json" -Raw -Encoding utf8 | ConvertFrom-Json
+          Write-Output ("lr-chep-mau: ok=" + $c.ok + ", " + $c.anh.Count + " ảnh; " + $c.bao_cao)
+          if (-not $c.ok -or $c.anh.Count -ne 30) { throw "lr-chep-mau trả kết quả sai" }
           dist/editer-anh/editer-anh.exe lr-cai
           if (-not (Test-Path "$env:APPDATA\Adobe\Lightroom\Modules\Editer.lrplugin\EditerLR.lua")) { throw "lr-cai không cài được plugin" }
           if (-not (Test-Path "dist/editer-anh/Editer.lrplugin/Info.lua")) { throw "thiếu plugin trong bản đóng gói" }

@@ -7,6 +7,7 @@ API của Lightroom — không qua file .xmp nên không cần "Read Metadata fr
 Lệnh (plugin gọi, trao đổi bằng file JSON):
   lr-canh <job.json> <out.json>     chia cảnh, chọn 1 ảnh mỗi cảnh để bạn chỉnh làm mẫu
   lr-dong-bo <job.json> <out.json>  mỗi ảnh còn lại theo ảnh mẫu nào, Exposure, nhiệt độ màu / tint
+  lr-chep-mau <job.json> <out.json> chép màu từ ảnh JPG mẫu; Lightroom dựng thử ảnh đại diện để đo và sửa
   lr-cai                            chép plugin vào thư mục Modules của Lightroom (tự nạp khi mở Lightroom)
 """
 from __future__ import annotations
@@ -192,13 +193,163 @@ def run_sync(job: dict, log=print, workers: int = 8, use_ai: bool = True) -> dic
     return {"ok": True, "phien_ban": __version__, "anh": out, "so_mau": len(ctx.ref_idx)}
 
 
+# ------------------------------------------------------------------ chép màu từ JPG trong Lightroom
+_LR_SKIP = {"Version", "ProcessVersion", "CameraProfile", "LensProfileEnable"}   # giữ profile / ống kính của ảnh
+
+
+def _lr_mask(item: dict) -> dict:
+    """Chỉnh cục bộ "Editer - Da/Nền" (mask AI) theo dạng thông số của Lightroom (giống cấu trúc .xmp)."""
+    import uuid
+    from . import xmp
+    kind = "da" if item["ten"].endswith("Da") else "nen"
+    corr = {"What": "Correction", "CorrectionAmount": 1, "CorrectionActive": True, "CorrectionName": item["ten"],
+            "CorrectionSyncID": uuid.uuid4().hex.upper(),
+            "LocalExposure2012": item["ev"] / 4, "LocalTemperature": item["temp"] / 100,
+            "LocalTint": item["tint"] / 100, "LocalSaturation": item["sat"] / 100, "LocalCurveRefineSaturation": 100}
+    for k in xmp._LOCAL_ZERO:
+        corr.setdefault(k, 0)
+    corr["CorrectionMasks"] = [{"What": "Mask/Image", "MaskActive": True, "MaskName": name, "MaskBlendMode": 0,
+                                "MaskInverted": False, "MaskSyncID": uuid.uuid4().hex.upper(), "MaskValue": 1,
+                                "MaskVersion": 1, "MaskSubType": int(sub), "MaskSubCategoryID": int(cat),
+                                "ReferencePoint": "0.500000 0.500000"} for name, sub, cat in xmp._MASKS[kind]]
+    return corr
+
+
+def to_lr(vals: dict, curve) -> dict:
+    """Thông số kiểu .xmp (Camera Raw) -> bảng thông số cho photo:applyDevelopSettings của Lightroom.
+    Không đổi profile / ống kính / process version của ảnh (Lightroom giữ của bạn)."""
+    out: dict = {}
+    for k, v in vals.items():
+        if k.startswith("_") or k in _LR_SKIP:
+            continue
+        out[k] = v if isinstance(v, str) else float(v)
+    if curve:
+        out["ToneCurveName2012"] = "Custom"
+        out["ToneCurvePV2012"] = [int(c) for xy in curve for c in xy]      # Lightroom: x1, y1, x2, y2...
+    local = vals.get("_local") or []
+    if local:
+        out["Editer_mask"] = [_lr_mask(it) for it in local]        # plugin gộp với mask sẵn có của ảnh
+    return out
+
+
+class RenderBridge:
+    """Nhờ plugin Lightroom dựng ảnh thật: ghi yeu-cau-N.json -> plugin áp thông số vào ảnh, xuất JPEG nhỏ,
+    ghi xong-N.json (đường dẫn ảnh + As Shot thật của Lightroom) -> đọc ảnh để đo."""
+
+    def __init__(self, workdir: Path, index: dict, log=print, timeout: float = 300.0):
+        self.dir, self.index, self.log, self.timeout, self.n = Path(workdir), index, log, timeout, 0
+        self.dir.mkdir(parents=True, exist_ok=True)
+        for f in list(self.dir.glob("yeu-cau-*.json")) + list(self.dir.glob("xong-*.json")):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
+    def render(self, path: str, settings: dict, size: int):
+        import time
+
+        import numpy as np
+        from PIL import Image
+        self.n += 1
+        req = {"n": self.n, "i": self.index[str(path)], "thong_so": settings, "co_anh": int(size)}
+        tmp = self.dir / f"yeu-cau-{self.n}.json.tmp"
+        tmp.write_text(json.dumps(req, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self.dir / f"yeu-cau-{self.n}.json")
+        done = self.dir / f"xong-{self.n}.json"
+        t0 = time.time()
+        while not done.exists():
+            if time.time() - t0 > self.timeout:
+                raise RuntimeError("Lightroom không trả ảnh dựng thử (quá thời gian chờ)")
+            time.sleep(0.1)
+        resp = json.loads(done.read_text(encoding="utf-8-sig"))
+        if not resp.get("ok"):
+            raise RuntimeError(resp.get("loi") or "Lightroom không dựng được ảnh")
+        with Image.open(resp["anh"]) as im:
+            img = np.asarray(im.convert("RGB"))
+        try:
+            Path(resp["anh"]).unlink()
+        except OSError:
+            pass
+        return img, resp
+
+    def factory(self, size: int):
+        from . import cli
+
+        def make(rep_photos):
+            def render(i, lk, shot):
+                vals, crv, _ = cli._compose_jpg(None, rep_photos[i], lk, shot, True)
+                img, resp = self.render(rep_photos[i].path, to_lr(vals, crv), size)
+                if shot.mired is None and resp.get("temp"):      # As Shot -> Lightroom cho biết số thật
+                    render.as_shot[i] = (float(resp["temp"]), float(resp.get("tint") or 0.0))
+                return img
+            render.as_shot = {}
+            return render
+        return make
+
+
+def run_copy(job: dict, log=print, workers: int = 8, use_ai: bool = True) -> dict:
+    """Chép màu từ ảnh JPG mẫu cho các ảnh Lightroom gửi; có thư mục làm việc thì Lightroom dựng thử ảnh đại
+    diện để đo và sửa (như Camera Raw qua Photoshop), không thì ước lượng mô phỏng."""
+    import argparse
+
+    from . import cli, look, raw
+    items = _items(job)
+    jpgs = [p for p in (job.get("mau_jpg") or []) if Path(p).is_file()]
+    if not jpgs:
+        raise SystemExit("Chưa chọn ảnh JPG mẫu (hoặc không mở được file ảnh mẫu).")
+    paths = [it["path"] for it in items]
+    log(f"Lightroom: chép màu từ {len(jpgs)} ảnh mẫu cho {len(paths)} ảnh")
+    log(f"Đọc {len(paths)} ảnh...")
+    loaded = style.load_many(paths, workers, log)
+    keep = [i for i, p in enumerate(loaded) if not p.error and p.preview is not None]
+    out = [{"i": i, "loi": loaded[i].error or "không đọc được ảnh"} for i in range(len(paths)) if i not in set(keep)]
+    if not keep:
+        raise SystemExit("Không đọc được file RAW nào — ổ đĩa chưa cắm / file đã chuyển chỗ?")
+    photos = [loaded[i] for i in keep]
+    for line in raw.wb_summary(photos):
+        log(line)
+    emb_model, embs = None, None
+    if use_ai:
+        from . import ai
+        emb_model = ai.Embedder.get()
+        if emb_model is not None:
+            log(f"AI đang xem {len(photos)} ảnh ({emb_model.device})...")
+            embs = emb_model.embed([p.preview for p in photos])
+    scenes = style.group_scenes(photos, 4.0, embs)
+    a = argparse.Namespace(khong_ai=not use_ai, vung_tat_ca=False, mau_jpg=jpgs, photoshop=False,
+                           co_anh=int(job.get("co_anh") or 1024), khong_mask=True,
+                           so_anh_dai_dien=int(job.get("so_anh_dai_dien") or 0), so_luot=int(job.get("so_luot") or 4),
+                           do_manh=float(job.get("do_manh") or 1.0), luu_preset=None)
+    factory = None
+    if job.get("lam_viec"):
+        bridge = RenderBridge(Path(job["lam_viec"]), {str(paths[i]): i for i in keep}, log)
+        factory = bridge.factory(a.co_anh)
+        log("Lightroom sẽ dựng thử ảnh đại diện để đo màu thật và sửa dần.")
+    try:
+        vals, curves, _tpls, info = cli._copy_color(a, None, None, photos, scenes, embs, emb_model, factory=factory)
+    except RuntimeError as e:
+        if factory is None:
+            raise
+        log(f"Lightroom không dựng thử được ({e}) — dùng ước lượng mô phỏng.")
+        vals, curves, _tpls, info = cli._copy_color(a, None, None, photos, scenes, embs, emb_model)
+    out += [{"i": keep[j], "thong_so": to_lr(v, c)} for j, (v, c) in enumerate(zip(vals, curves))]
+    measured = bool(info.get("camera_raw"))
+    rep = info.get("camera_raw") if measured else info.get("mo_phong")
+    by_path = {str(paths[i]): i for i in keep}
+    return {"ok": True, "phien_ban": __version__, "anh": out, "do_tren_lightroom": measured,
+            "bao_cao": look.fmt_report(rep) if rep else "", "mask_ai": info.get("mask_ai"),
+            "giu_goc": bool(info.get("giu_goc")),
+            "dai_dien": [by_path[str(t)] for t in info.get("tep_dai_dien", []) if str(t) in by_path]}
+
+
 def run_job(kind: str, job_path: str, out_path: str, log=print, workers: int = 8, use_ai: bool = True) -> dict:
     """Đọc job.json, chạy, ghi out.json. Lỗi cũng ghi vào out.json để plugin báo cho bạn."""
     out = Path(out_path)
     try:
         job = json.loads(Path(job_path).read_text(encoding="utf-8-sig"))
         use_ai = use_ai and job.get("ai", True)
-        res = (run_scenes if kind == "canh" else run_sync)(job, log, workers, use_ai)
+        fn = {"canh": run_scenes, "chep-mau": run_copy}.get(kind, run_sync)
+        res = fn(job, log, workers, use_ai)
     except SystemExit as e:
         res = {"ok": False, "loi": str(e.code if e.code is not None else "dừng")}
     except Exception as e:  # báo về Lightroom thay vì im lặng

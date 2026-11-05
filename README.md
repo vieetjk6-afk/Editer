@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.11)
+## Editer Ảnh (bản 0.12)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
@@ -57,6 +57,12 @@ Có 4 chức năng:
      - gọi `editer-anh.exe lr-dong-bo viec.json ket-qua.json` (`editer_anh/lightroom.py`, dùng chung
        `dongbo.analyse/decide`);
      - áp bằng `applyDevelopSettings` trong một `withWriteAccessDo` (một bước Undo).
+
+     **0.12 — chép màu từ JPG trong Lightroom:** `lr-chep-mau` chạy `_copy_color` với bộ dựng là Lightroom.
+     `lightroom.RenderBridge` ghi `yeu-cau-N.json`; plugin (một tác vụ chạy editer-anh.exe, tác vụ khác phục vụ)
+     áp thông số thử vào ảnh đại diện, `LrExportSession` xuất JPEG, ghi `xong-N.json` kèm As Shot thật. Xong thì
+     trả ảnh đại diện về thông số gốc và áp kết quả cho cả lô (`to_lr`: không đổi profile / ống kính / PV;
+     mask "Editer - …" gộp với mask sẵn có).
 
      Bước 1 `lr-canh` chia cảnh và đưa mỗi cảnh 1 ảnh vào bộ sưu tập để bạn chỉnh. `lr-cai` chép plugin vào
      `%APPDATA%\Adobe\Lightroom\Modules`, nơi Lightroom tự nạp. Mỗi lần mở giao diện, `lightroom.json` được
