@@ -109,6 +109,17 @@ def lua_runtime():
     return lua51.LuaRuntime(unpack_returned_tuples=True)
 
 
+def split_cmd(cmd: str) -> list[str]:
+    """Như LrTasks.execute: Windows chạy qua cmd.exe /c (bỏ 1 lớp ngoặc kép ngoài cùng) -> danh sách tham số."""
+    line = cmd
+    if os.name == "nt":
+        assert line.startswith('""') and line.endswith('""'), "Windows: phải bọc thêm 1 lớp ngoặc kép"
+        line = line[1:-1]
+    args = re.findall(r'"([^"]*)"', line)
+    assert args and " ".join(f'"{a}"' for a in args) == line, line
+    return args
+
+
 def fs_helpers(lua) -> None:
     """LrFileUtils / LrDate của Lightroom giả (làm bằng Python, chạy được cả Windows)."""
     import shutil
@@ -206,15 +217,8 @@ def test_plugin(tmp: Path, paths: list[Path]) -> None:
     calls = []
 
     def py_execute(cmd):
-        """Như LrTasks.execute: Windows chạy qua cmd.exe /c (bỏ 1 lớp ngoặc kép ngoài cùng)."""
         calls.append(cmd)
-        line = cmd
-        if os.name == "nt":
-            assert line.startswith('""') and line.endswith('""'), "Windows: phải bọc thêm 1 lớp ngoặc kép"
-            line = line[1:-1]
-        args = re.findall(r'"([^"]*)"', line)
-        assert args and " ".join(f'"{a}"' for a in args) == line, line
-        return subprocess.run(args, env={**os.environ, "PYTHONUTF8": "1"}).returncode
+        return subprocess.run(split_cmd(cmd), env={**os.environ, "PYTHONUTF8": "1"}).returncode
 
     g = lua.globals()
     g.FAKE_HOME = str(home)
@@ -226,7 +230,7 @@ def test_plugin(tmp: Path, paths: list[Path]) -> None:
             fail["next"] = False
             calls.append(cmd)
             if isinstance(stale, str):         # còn sót kết quả cũ (không xoá được) -> phải bị bỏ qua
-                out_path = re.findall(r'"([^"]*)"', cmd)[-1]
+                out_path = split_cmd(cmd)[-1]
                 Path(out_path).write_text(stale, encoding="utf-8")
             return 1
         return py_execute(cmd)
@@ -348,13 +352,6 @@ def test_copy(tmp: Path) -> None:
     Image.fromarray(sim_render(ref_img, ref_lk, Shot(1e6 / 5500, 0.0, 0.1), FAKE)).save(tmp / "mau.jpg", quality=95)
 
     procs, renders = {}, []
-
-    def split_cmd(cmd):
-        line = cmd
-        if os.name == "nt":
-            assert line.startswith('""') and line.endswith('""')
-            line = line[1:-1]
-        return re.findall(r'"([^"]*)"', line)
 
     def py_spawn(cmd):
         procs[len(procs) + 1] = subprocess.Popen(split_cmd(cmd), env={**os.environ, "PYTHONUTF8": "1"})
