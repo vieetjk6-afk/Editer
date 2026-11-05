@@ -364,10 +364,10 @@ function M.dongBo()
   msg = msg .. aiMsg
   if #notes.loi > 0 then
     msg = msg .. string.format('\n\nBỏ qua %d ảnh không đọc được file: %s', #notes.loi,
-      table.concat(notes.loi, '; '):sub(1, 400))
+      Core.cut(table.concat(notes.loi, '; '), 400))
   end
   if #failed > 0 then
-    msg = msg .. string.format('\n\nLightroom không nhận %d ảnh: %s', #failed, table.concat(failed, '; '):sub(1, 400))
+    msg = msg .. string.format('\n\nLightroom không nhận %d ảnh: %s', #failed, Core.cut(table.concat(failed, '; '), 400))
   end
   if other > 0 then msg = msg .. string.format('\n\n(Bỏ qua %d ảnh không phải RAW.)', other) end
   LrDialogs.message(TITLE, msg, 'info')
@@ -572,10 +572,10 @@ function M.chepMau()
   end
   msg = msg .. '\n\nChưa ưng ảnh nào: chỉnh tay ảnh đó (hoặc 1 ảnh mỗi cảnh) rồi chạy "Editer: 2. Đồng bộ cả cảnh".'
   if #loi > 0 then
-    msg = msg .. string.format('\n\nBỏ qua %d ảnh không đọc được file: %s', #loi, table.concat(loi, '; '):sub(1, 300))
+    msg = msg .. string.format('\n\nBỏ qua %d ảnh không đọc được file: %s', #loi, Core.cut(table.concat(loi, '; '), 300))
   end
   if #failed > 0 then
-    msg = msg .. string.format('\n\nLightroom không nhận %d ảnh: %s', #failed, table.concat(failed, '; '):sub(1, 300))
+    msg = msg .. string.format('\n\nLightroom không nhận %d ảnh: %s', #failed, Core.cut(table.concat(failed, '; '), 300))
   end
   if other > 0 then msg = msg .. string.format('\n\n(Bỏ qua %d ảnh không phải RAW.)', other) end
   LrDialogs.message(TITLE, msg, 'info')

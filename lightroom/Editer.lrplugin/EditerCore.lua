@@ -31,10 +31,12 @@ local function enc(v, out)
     elseif math.floor(v) == v and math.abs(v) < 1e15 then
       out[#out + 1] = string.format('%.0f', v)
     else
-      out[#out + 1] = string.format('%.10g', v)
+      out[#out + 1] = (string.format('%.10g', v):gsub(',', '.'))   -- máy dùng dấu phẩy thập phân
     end
   elseif t == 'string' then
-    out[#out + 1] = '"' .. (v:gsub('[%c"\\]', function(c)
+    -- KHÔNG dùng %c: nó theo bảng mã của máy (Windows cp1252/cp1258 coi byte 0x81, 0x90... là ký tự điều
+    -- khiển) -> cắt đôi chữ UTF-8 như "ề" (E1 BB 81), "Đ" (C4 90) -> JSON hỏng (lỗi thật: mask "Editer - Nền").
+    out[#out + 1] = '"' .. (v:gsub('[%z\1-\31\127"\\]', function(c)
       return ESC[c] or string.format('\\u%04x', c:byte())
     end)) .. '"'
   elseif t == 'table' then
@@ -164,15 +166,31 @@ parse = function(s, i)
   elseif s:sub(i, i + 3) == 'null' then
     return nil, i + 4
   else
-    local a, b = s:find('^-?%d+%.?%d*[eE]?[-+]?%d*', i)
+    local a, b = s:find('^-?[0-9]+%.?[0-9]*[eE]?[-+]?[0-9]*', i)    -- [0-9], không dùng %d (theo bảng mã máy)
     if not a then error('JSON: giá trị lạ ở vị trí ' .. i) end
-    return tonumber(s:sub(a, b)), b + 1
+    local tok = s:sub(a, b)
+    local x = tonumber(tok) or tonumber((tok:gsub('%.', ',')))     -- máy dùng dấu phẩy thập phân
+    if x == nil then error('JSON: số lạ ở vị trí ' .. i) end
+    return x, b + 1
   end
 end
 
 function M.decode(s)
   local v = parse(s, 1)
   return v
+end
+
+--- Cắt chuỗi UTF-8 còn tối đa n byte mà không cắt đôi một chữ (s:sub cắt theo byte).
+function M.cut(s, n)
+  s = tostring(s or '')
+  if #s <= n then return s end
+  local i = n
+  while i > 0 do
+    local b = s:byte(i + 1)
+    if b < 0x80 or b >= 0xC0 then break end        -- byte i+1 bắt đầu một chữ mới -> cắt trước nó
+    i = i - 1
+  end
+  return s:sub(1, i) .. '…'
 end
 
 ---------------------------------------------------------------------------- dấu vân tay thông số

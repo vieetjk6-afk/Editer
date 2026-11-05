@@ -147,6 +147,41 @@ def fs_helpers(lua) -> None:
     g.py_now = lambda: time.time() - 978307200.0
 
 
+VIET = ("Editer - Nền | Đám cưới Đức & Hồng | họ ỏ ờ Ọ Ỏ Ờ Ị Ố | "
+        + "".join(chr(c) for c in range(0x1EA0, 0x1EFA)) + " ĐđĂăÂâÊêÔôƠơƯư àáảãạ")
+
+
+def test_codepage(lua, core) -> None:
+    """Bảng mã của máy không được làm hỏng chữ Việt trong JSON. Lỗi thật ở 0.13.0 (máy build Windows, cp1252):
+    %c của Lua theo bảng mã máy -> byte 0x81 của "ề" (mask "Editer - Nền") bị coi là ký tự điều khiển -> file
+    kết quả dựng thử không còn là UTF-8. Lightroom chạy theo bảng mã Windows của bạn (cp1258 / cp1252)."""
+    import locale
+    has_ctrl = lua.eval("function(s) return s:find('%c') ~= nil end")
+    old = locale.setlocale(locale.LC_CTYPE)
+    hit = []
+    for loc in ("", ".1258", "Vietnamese_Vietnam.1258", ".1252", "English_United States.1252",
+                "en_US.ISO-8859-1", "en_US.iso88591", "C"):
+        try:
+            locale.setlocale(locale.LC_CTYPE, loc)
+        except locale.Error:
+            continue
+        try:
+            if has_ctrl(b"\x81") or has_ctrl(b"\x90"):
+                hit.append(locale.setlocale(locale.LC_CTYPE))
+            txt = json.dumps({"s": VIET, "x": 0.25, "p": "C:\\Users\\Đức\\Ảnh cưới"}, ensure_ascii=False)
+            back = json.loads(core.encode(core.decode(txt)))
+            assert back == {"s": VIET, "x": 0.25, "p": "C:\\Users\\Đức\\Ảnh cưới"}, (loc, back)
+            raw = VIET.encode()
+            for n in range(0, 80):                     # cắt chuỗi không cắt đôi chữ UTF-8
+                cut = core.cut(raw, n)               # lupa đọc kết quả bằng UTF-8: hỏng là lỗi ngay
+                assert len(cut.encode()) <= n + 3 and VIET.startswith(cut.rstrip("…")), (n, cut)
+        finally:
+            locale.setlocale(locale.LC_CTYPE, old)
+    assert core.cut("abc", 5) == "abc" and core.cut("Nền", 2) == "N…"
+    print(f"[lightroom] JSON giữ đúng chữ Việt cả với bảng mã máy 8-bit: "
+          f"{', '.join(hit) if hit else '(máy này không có bảng mã 8-bit để thử)'}")
+
+
 def test_core() -> None:
     lua = lua_runtime()
     lua.execute(f"package.path = '{PLUGIN.as_posix()}/?.lua;' .. package.path")
@@ -156,6 +191,7 @@ def test_core() -> None:
     for txt in (json.dumps(data, ensure_ascii=False), json.dumps(data, ensure_ascii=True)):
         back = json.loads(core.encode(core.decode(txt)))
         assert back["a"] == data["a"] and back["b"] == data["b"] and back["c"] == [] and "n" not in back, back
+    test_codepage(lua, core)
     fp = core.fingerprint
     base = {"WhiteBalance": "As Shot", "Temperature": 5100, "Tint": 3, "Vibrance": 0, "CropTop": 0,
             "LensProfileName": "A", "CameraProfileDigest": "X"}

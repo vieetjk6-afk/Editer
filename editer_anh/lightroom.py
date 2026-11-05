@@ -263,15 +263,19 @@ class RenderBridge:
             if time.time() - t0 > self.timeout:
                 raise RuntimeError("Lightroom không trả ảnh dựng thử (quá thời gian chờ)")
             time.sleep(0.1)
-        resp = None
+        resp, err, raw = None, None, b""
         for _ in range(50):                      # file vừa xuất hiện có thể đang ghi dở
             try:
-                resp = json.loads(done.read_text(encoding="utf-8-sig"))
+                raw = done.read_bytes()
+                resp = json.loads(raw.decode("utf-8-sig"))
                 break
-            except (OSError, ValueError):
+            except (OSError, ValueError) as e:   # UnicodeDecodeError cũng là ValueError
+                err = e
                 time.sleep(0.1)
-        if resp is None:
-            raise RuntimeError("không đọc được kết quả dựng thử của Lightroom")
+        if not isinstance(resp, dict):
+            # nói rõ lý do + đầu file để sửa được (trước đây chỉ báo "không đọc được")
+            raise RuntimeError(f"không đọc được kết quả dựng thử của Lightroom ({done.name}: {err or 'không phải JSON'};"
+                               f" {len(raw)} byte, đầu file {raw[:160]!r})")
         if not resp.get("ok"):
             raise RuntimeError(resp.get("loi") or "Lightroom không dựng được ảnh")
         with Image.open(resp["anh"]) as im:
@@ -339,12 +343,13 @@ def run_copy(job: dict, log=print, workers: int = 8, use_ai: bool = True) -> dic
         factory = bridge.factory(a.co_anh)
         log("Lightroom sẽ dựng thử ảnh đại diện để đo màu thật và sửa dần.")
     try:
-        vals, curves, _tpls, info = cli._copy_color(a, None, None, photos, scenes, embs, emb_model, factory=factory)
+        vals, curves, _tpls, info = cli._copy_color(a, None, None, photos, scenes, embs, emb_model, factory=factory,
+                                                    ten="Lightroom")
     except RuntimeError as e:
         if factory is None:
             raise
         log(f"Lightroom không dựng thử được ({e}) — dùng ước lượng mô phỏng.")
-        vals, curves, _tpls, info = cli._copy_color(a, None, None, photos, scenes, embs, emb_model)
+        vals, curves, _tpls, info = cli._copy_color(a, None, None, photos, scenes, embs, emb_model, ten="Lightroom")
     out += [{"i": keep[j], "thong_so": to_lr(v, c)} for j, (v, c) in enumerate(zip(vals, curves))]
     measured = bool(info.get("camera_raw"))
     rep = info.get("camera_raw") if measured else info.get("mo_phong")

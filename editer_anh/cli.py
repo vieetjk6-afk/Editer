@@ -231,11 +231,15 @@ def _blend(lk: look.Look, shots: list, cams: list, s: float):
     return mix, out
 
 
-def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, embs, emb_model, factory=None):
-    """factory: bộ dựng ảnh thật có sẵn (vd Lightroom dựng qua plugin) thay cho Photoshop."""
+def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, embs, emb_model, factory=None,
+                ten: str | None = None):
+    """factory: bộ dựng ảnh thật có sẵn (vd Lightroom dựng qua plugin) thay cho Photoshop.
+    ten: tên bên dựng ảnh thật để ghi nhật ký ("Lightroom" / mặc định "Camera Raw")."""
     from dataclasses import replace as _replace
 
     from . import ai
+    ten = ten or ("Lightroom" if factory is not None else "Camera Raw")
+    lr = ten == "Lightroom"                      # Lightroom dựng ảnh thật (không phải Camera Raw qua Photoshop)
     # Ảnh dọc phải ĐỨNG THẲNG để AI nhận mặt/người đúng (và hiển thị đúng chiều)
     photos = [_replace(p, preview=p.upright(), flip=0) if p.preview is not None else p for p in photos]
     seg = None if a.khong_ai else ai.Segmenter.get()
@@ -289,13 +293,14 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
                 "tep_dai_dien": [photos[i].path for i in info.get("reps", [])]}
     if info.get("mask_ai"):
         mk = info["mask_ai"]
-        word = {True: "CÓ (đã đo trên Camera Raw)", "mo_phong": "CÓ (theo mô phỏng — Camera Raw không áp mask "
-                "khi dựng tự động nên chưa đo được; mở ảnh trong Camera Raw để xem)", False: "không"}
-        _log(f"Chỉnh riêng từng phần bằng mask AI của Camera Raw: da {word[mk['da']]}, nền {word[mk['nen']]}")
+        xem = "mở ảnh trong Develop để xem" if lr else "mở ảnh trong Camera Raw để xem"
+        word = {True: f"CÓ (đã đo trên {ten})", "mo_phong": f"CÓ (theo mô phỏng — {ten} không áp mask "
+                f"khi dựng tự động nên chưa đo được; {xem})", False: "không"}
+        _log(f"Chỉnh riêng từng phần bằng mask AI: da {word[mk['da']]}, nền {word[mk['nen']]}")
     if "camera_raw" in info:
-        _log(f"KẾT QUẢ ĐO TRÊN CAMERA RAW (ảnh đại diện): {look.fmt_report(info['camera_raw'])}")
+        _log(f"KẾT QUẢ ĐO TRÊN {ten.upper()} (ảnh đại diện): {look.fmt_report(info['camera_raw'])}")
     else:
-        _log(f"Ước lượng (chưa kiểm tra bằng Camera Raw): {look.fmt_report(info['mo_phong'])}")
+        _log(f"Ước lượng (chưa kiểm tra bằng {ten}): {look.fmt_report(info['mo_phong'])}")
     _log("  (ΔE dưới 2: mắt gần như không phân biệt; 2-5: gần; trên 5: còn khác rõ)")
     cams = look.as_shot_shots(photos)
     vals, curves, tpls = [], [], []

@@ -22,6 +22,10 @@ MỚI Ở BẢN 0.13 — CHÉP MÀU KHỚP CẢ ÁO, HOA, ĐỒ TRANG TRÍ (theo
  - Kết quả có thêm các ô: "Màu áo (theo áo mẫu)", "Màu khác", "Màu mẫu không có (giữ gốc)".
  Thử trên ảnh giả lập giống ca của bạn: áo lệch áo mẫu ΔE 19 -> 0,9; hoa giữ gần màu gốc (ΔE 2,4); da, trắng
  vẫn khớp.
+ - Plugin Lightroom: sửa lỗi chữ Việt bị hỏng trong file trao đổi giữa Lightroom và Editer trên Windows (bảng
+   mã của máy cắt đôi các chữ như "ề", "Đ", "ọ", "ờ"). Lỗi này làm lượt dựng thử có mask "Editer - Nền" thất
+   bại rồi tool lùi về ước lượng mô phỏng; thư mục / tên ảnh có chữ "Đ"... cũng có thể bị. Nhật ký giờ ghi
+   rõ "Lightroom" (thay vì "Camera Raw") khi Lightroom là bên dựng ảnh.
 
 BẢN 0.12.2 — SỬA MÀU SAI KHI CHÉP MÀU TRONG LIGHTROOM (mặt xám, màu lệch nhiều)
  Nguyên nhân (theo nhật ký của bạn):

@@ -1181,12 +1181,13 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
     keeps = [r.keep for r in reps]
     use_local, probed = (False, False), False
     base_score, base_rp = None, None
+    ten = getattr(render, "ten", "Camera Raw")      # ai dựng ảnh: Camera Raw (Photoshop) / Lightroom
     if base_imgs is not None and len(bases) == n:
         act0 = [measure(sample_at(img, idx, s0).px, sel) for img, (idx, s0, sel) in zip(base_imgs, bases)]
         base_score = float(np.sqrt(np.mean(np.concatenate(
             [diff(m, _tgt(r, ref), b[2], ref_sel, kp) for m, b, kp, r in zip(act0, bases, keeps, reps)]) ** 2)))
         base_rp = report(act0, ref, keeps, [r.target for r in reps])
-        log(f"    ảnh gốc (Camera Raw, chưa chỉnh): {fmt_report(base_rp)}")
+        log(f"    ảnh gốc ({ten}, chưa chỉnh): {fmt_report(base_rp)}")
 
     for it in range(iters + 1):
         lk_t, sh_t = _unpack(x_try, tmpl)
@@ -1233,7 +1234,7 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
             pairs = [((xa, ra), (xb, rb)) for (xa, ra), (xb, rb) in zip(seen[:-1], seen[1:])]
             pairs += [((best["x"], best["r_act"]), s_) for s_ in seen if s_[0] is not best["x"]][-2:]
             gains = learn_gains(reps, keys, ref, ref_sel, ident, gidx, tmpl, pairs, k)
-            log("      độ mạnh Camera Raw / mô phỏng: " + ", ".join(
+            log(f"      độ mạnh {ten} / mô phỏng: " + ", ".join(
                 f"{n} {g:.2f}" for n, g in zip(GROUPS, gains) if abs(g - 1) > 0.15))
         G = gains[gidx]
         xm_best = ident + G * (best["x"] - ident)
@@ -1272,7 +1273,7 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
         elif fix is not None and np.any(np.abs(fix) > [0.03, 1.0, 1.0, 1.0]):
             lk_b.skin_loc = fix
             state[0] = "mo_phong"
-            log(f"      chỉnh riêng da theo mô phỏng (chưa đo được trên Camera Raw): Exposure {fix[0]:+.2f}, "
+            log(f"      chỉnh riêng da theo mô phỏng (chưa đo được trên {ten}): Exposure {fix[0]:+.2f}, "
                 f"Nhiệt độ {fix[1]:+.0f}, Tint {fix[2]:+.0f}, Saturation {fix[3]:+.0f}")
     return (lk_b, sh_b, best["score"], best["report"], best["imgs"]), history, tuple(state)
 
@@ -1316,7 +1317,8 @@ def _probe_masks(render, base, img0, lk: Look, sh: Shot, log) -> tuple[bool, boo
         d = float((L1[m] - L0[m]).mean())
         ok = d * sign > 2.0
         out.append(ok)
-        log(f"      mask AI '{name}' của Camera Raw: {'hoạt động' if ok else 'KHÔNG hoạt động'} (ΔL {d:+.1f})")
+        log(f"      mask AI '{name}' của {getattr(render, 'ten', 'Camera Raw')}: {'hoạt động' if ok else 'KHÔNG hoạt động'}"
+            f" (ΔL {d:+.1f})")
     return out[0], out[1]
 
 
@@ -1532,7 +1534,10 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
         log(f"  trên mô phỏng: {fmt_report(rp_sim)}")
         if render is not None:
             log(f"Kiểm tra bằng {getattr(render, 'ten', 'Camera Raw')} thật ({len(g)} ảnh x tối đa {iters + 1} lượt):")
-            best, hist, used = refine(sub, (lambda ii, lk, sh, g=g: render(g[ii], lk, sh)), segment, ref.stats,
+            def render_g(ii, lk, sh, g=g):
+                return render(g[ii], lk, sh)
+            render_g.ten = getattr(render, "ten", "Camera Raw")      # tên bên dựng ảnh cho nhật ký
+            best, hist, used = refine(sub, render_g, segment, ref.stats,
                                       ref.sel, lk_g, sh_g, pr_g, iters=iters, log=log,
                                       bases0=[bases0[j] for j in g], base_imgs=[base_imgs[j] for j in g])
             lk_g, sh_g = best[0], best[1]
