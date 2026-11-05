@@ -374,6 +374,11 @@ class Sel:
 
 
 MIN_AREA = 0.03   # trời / cây phải chiếm >= 3% ảnh mới đem ra khớp (vùng nhỏ dễ nhận nhầm)
+# 0.13.0 thử khớp "màu khác" (hoa, đồ trang trí) và áo theo ảnh mẫu -> ảnh thật của người dùng TỆ HƠN: kéo màu đỏ
+# / áo theo mẫu kéo luôn DA (da và đỏ chung thanh trượt Đỏ/Cam) -> da cam, loang; áo đỏ chói. Tắt (như 0.12.2)
+# cho tới khi có ảnh RAW thật + bản người dùng tự chỉnh để kiểm chứng.
+MATCH_BANDS = False          # True: đo 8 dải "màu khác" (khớp dải có ở cả hai ảnh, giữ dải mẫu không có)
+DRESS_FOLLOWS_REF = False    # True: áo cùng tông với áo mẫu thì theo màu áo mẫu (False: luôn giữ màu áo gốc)
 BAND_MIN = 0.02   # một dải màu phải chiếm >= 2% ảnh mới tính
 BAND_SET = (OTHER, FLOWER, WATER)   # "màu khác": không phải da, áo, tóc, người, trời, cây (đã có mục tiêu riêng)
 BANDS_VI = ["đỏ", "cam", "vàng", "xanh lá", "xanh ngọc", "xanh dương", "tím", "hồng tím"]
@@ -453,14 +458,14 @@ def select(s: Sample, ref: bool = False, loose: bool = False) -> Sel:
     gs = np.flatnonzero(g & valid & np.isin(reg, NEUTRAL_SET) & (L < 40) & (C <= 8))
     if len(gs) >= max(50, int(0.015 * len(s.glob))):
         sel.shadow = gs[L[gs] <= np.percentile(L[gs], 50)]
-    # ÁO có màu (đỏ, hồng...): giữ như ảnh gốc — trừ khi ảnh mẫu cũng có áo cùng tông (xem copy_color)
+    # ÁO có màu (đỏ, hồng...): giữ như ảnh gốc (DRESS_FOLLOWS_REF bật thì theo áo mẫu cùng tông — xem make_keep)
     if sel.frac["clothes"] >= 0.02:
         sel.clothes = _ok(np.flatnonzero((reg == CLOTHES) & valid & (Cc > 15)), 80)
     # MÀU KHÁC (hoa, đồ trang trí, sàn, rèm màu...) gom theo 8 dải màu HSL của Camera Raw / Lightroom.
     # Dải có ở CẢ ảnh mẫu lẫn ảnh RAW -> khớp theo ảnh mẫu; chỉ ảnh RAW có -> giữ màu gốc (không để hoa, sàn...
     # bị nhuộm / rực lên theo các thanh trượt chung — lỗi thật: sàn xanh két, hoa hồng tím chói).
     obj = g & valid & np.isin(reg, BAND_SET) & (Cc > 15) & (L > 12) & (L < 95)
-    if obj.sum() >= 40:
+    if MATCH_BANDS and obj.sum() >= 40:
         hsv_h = color.rgb_to_hsv(np.clip(s.px, 0, 1))[:, 0]
         dist = np.abs((CENTERS[None, :] - hsv_h[:, None] + 180) % 360 - 180)
         band, near = np.argmin(dist, axis=1), dist.min(axis=1) <= 20.0     # chỉ điểm gần tâm dải
@@ -713,7 +718,8 @@ def make_keep(m0: dict, T: dict) -> dict:
     - áo có màu: giữ — TRỪ KHI ảnh mẫu cũng có áo cùng tông (áo dài đỏ - áo dài đỏ: theo màu áo mẫu);
     - dải màu chỉ ảnh RAW có (hoa tím, sàn xanh... mà ảnh mẫu không có): giữ màu gốc."""
     keep = {key: m0[key] for key in KEEP_KEYS if key in m0}
-    if "clothes" in keep and "clothes" in T and _band_of(T["clothes"]) == _band_of(keep["clothes"]):
+    if DRESS_FOLLOWS_REF and "clothes" in keep and "clothes" in T and \
+            _band_of(T["clothes"]) == _band_of(keep["clothes"]):
         del keep["clothes"]
     for kb in [key for key in m0 if key.startswith("band")]:
         if kb not in T:
@@ -1175,6 +1181,17 @@ def skin_ok(rp: dict, base_rp: dict | None) -> bool:
     return rp["da"] <= base_rp["da"] + max(1.0, 0.1 * base_rp["da"])
 
 
+def guard_ok(rp: dict, base_rp: dict | None) -> tuple[bool, str]:
+    """Kết quả KHÔNG được làm DA hay TRẮNG tệ hơn ảnh gốc chưa chỉnh (lỗi thật 0.13.0: trắng ΔE 2.8 -> 6.2 vẫn
+    được nhận). Cho lệch thêm tối đa 1 ΔE hoặc 10%. -> (được không, vùng bị tệ hơn)"""
+    if not skin_ok(rp, base_rp):
+        return False, "da"
+    if base_rp and "trắng" in rp and "trắng" in base_rp and \
+            rp["trắng"] > base_rp["trắng"] + max(1.0, 0.1 * base_rp["trắng"]):
+        return False, "trắng"
+    return True, ""
+
+
 def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Look, shots0: list[Shot],
            priors: list[Shot], iters: int = 3, log=print, k: Consts = DEFAULT, tol: float = 0.8,
            reg_schedule=(0.6, 0.3, 0.15), probe_local: bool = True, bases0: list | None = None,
@@ -1244,11 +1261,12 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
         else:
             mu *= 4.0                                       # tệ -> siết lại, bước ngắn hơn
             mark = "  (tệ hơn -> bỏ, thử bước ngắn hơn)"
-        if skin_ok(rp, base_rp):
+        ok, worse = guard_ok(rp, base_rp)
+        if ok:
             if best_ok is None or score < best_ok["score"]:
                 best_ok = {"x": x_try.copy(), "score": score, "report": rp, "imgs": imgs}
         elif not mark:
-            mark = f"  (da tệ hơn ảnh gốc ΔE {base_rp['da']:.1f} -> không dùng kết quả này)"
+            mark = f"  ({worse} tệ hơn ảnh gốc ΔE {base_rp[worse]:.1f} -> không dùng kết quả này)"
         log(f"    lượt {it + 1}: {fmt_report(rp)}{mark}")
         if it == iters or best["score"] < tol:
             break
@@ -1273,7 +1291,7 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
         x_try = _pack(lk_p, sh_p)
     if base_rp is not None and (best_ok is None or best_ok["score"] > 0.95 * base_score):
         if best_ok is None:
-            log("    Lượt nào cũng làm DA tệ hơn ảnh gốc -> giữ ảnh như gốc (As Shot, không đổi màu).")
+            log("    Lượt nào cũng làm DA hoặc TRẮNG tệ hơn ảnh gốc -> giữ ảnh như gốc (As Shot, không đổi màu).")
         best = {**best, "score": 1e9}                       # -> nhánh giữ gốc bên dưới
     elif best_ok is not None:
         best = {**best, "x": best_ok["x"], "score": best_ok["score"], "report": best_ok["report"],

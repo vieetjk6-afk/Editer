@@ -417,10 +417,48 @@ def test_transfer():
     print("[chuyển sang cả lô] OK")
 
 
+def _dress_case():
+    """Ảnh mẫu áo dài ĐỎ TƯƠI (như ảnh K.Studio), ảnh của bạn áo dài đỏ đô tối + tường hoa."""
+    ref_img, rreg = scene(21, red_dress=True)                      # áo dài đỏ tươi (40, 55, 30)
+    ref_img = render(ref_img, Look(sat=np.array([0, 10, 0, -30, 0, 0, 0, 0.0])), Shot(1e6 / 5300, 0, 0.2))
+    _, _, ref_sel, ref = stats_of(ref_img, rreg, ref=True)
+    target, reg = scene(22, red_dress=True, flowers=True)
+    lab = color.srgb_to_lab(target.reshape(-1, 3) / 255.0).reshape(target.shape)
+    lab[(reg == CLOTHES) & (lab[..., 1] > 30)] = (22, 36, 11)       # áo đỏ đô tối như ảnh của bạn
+    target = (np.clip(color.lab_to_srgb(lab.reshape(-1, 3)), 0, 1).reshape(target.shape) * 255 + 0.5).astype(np.uint8)
+    return ref, ref_sel, target, reg
+
+
+def test_dress_kept_by_default():
+    """Mặc định (từ 0.13.1, như 0.12.2): áo GIỮ màu gốc của ảnh RAW, không đo "màu khác". 0.13.0 cho áo theo
+    áo mẫu + khớp màu khác -> ảnh thật của người dùng: da cam loang, áo đỏ chói (da và đỏ chung thanh trượt)."""
+    assert not look.MATCH_BANDS and not look.DRESS_FOLLOWS_REF
+    ref, ref_sel, target, reg = _dress_case()
+    s, idx, sel, m0 = stats_of(target, reg)
+    keep = look.make_keep(m0, ref)
+    assert "clothes" in keep and not any(k.startswith("band") for k in keep) and not sel.bands
+    rep_ = look.Rep(s.px, sel, Look(), AS_SHOT, s.reg, keep)
+    lk, shots = look.solve([rep_], ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=(True, True))
+    out = render(target, lk, shots[0], reg=reg)
+    rp = look.report([look.measure(look.sample_at(out, idx, s).px, sel)], ref, [keep])
+    print(f"[áo giữ màu gốc] {look.fmt_report(rp)}")
+    assert rp["áo"] < 3.0, "áo phải giữ gần màu gốc"
+    assert rp["da"] < 3.0 and rp["trắng"] < 2.5
+
+
 def test_match_ref_dress_keep_flowers():
-    """Lỗi thật (0.12.2, Lightroom): ảnh mẫu K.Studio áo dài ĐỎ TƯƠI (L 41, C 52, tông 27°), không có hoa
-    rực; kết quả: áo đỏ đô tối (L 17-26, C 34-41, 16-20°), hoa hồng/tím chói, sàn xanh két.
-    Giờ: áo cùng tông với áo mẫu -> theo màu áo mẫu; màu ảnh mẫu không có (hoa tím/hồng) -> giữ màu gốc."""
+    """(TẮT mặc định từ 0.13.1 — MATCH_BANDS / DRESS_FOLLOWS_REF; giữ test để phần mã còn đúng khi bật lại.)
+    Ảnh mẫu K.Studio áo dài ĐỎ TƯƠI (L 41, C 52, tông 27°), kết quả 0.12.2 áo đỏ đô tối (L 17-26, C 34-41).
+    Bật: áo cùng tông với áo mẫu -> theo màu áo mẫu; màu ảnh mẫu không có (hoa tím/hồng) -> giữ màu gốc."""
+    old = look.MATCH_BANDS, look.DRESS_FOLLOWS_REF
+    look.MATCH_BANDS = look.DRESS_FOLLOWS_REF = True
+    try:
+        _match_ref_dress_keep_flowers()
+    finally:
+        look.MATCH_BANDS, look.DRESS_FOLLOWS_REF = old
+
+
+def _match_ref_dress_keep_flowers():
     ref_img, rreg = scene(21, red_dress=True)                      # áo dài đỏ tươi (40, 55, 30)
     ref_img = render(ref_img, Look(sat=np.array([0, 10, 0, -30, 0, 0, 0, 0.0])), Shot(1e6 / 5300, 0, 0.2))
     _, _, ref_sel, ref = stats_of(ref_img, rreg, ref=True)
@@ -487,7 +525,11 @@ def test_skin_guard():
     assert not look.skin_ok({"da": 15.0, "trắng": 1.4, "cây": 8.0}, base)
     assert look.skin_ok({"da": 10.0, "trắng": 1.4}, base) and look.skin_ok({"da": 3.0}, base)
     assert look.skin_ok({"trắng": 1.0}, base) and look.skin_ok({"da": 30.0}, None)
-    print("[da] không nhận kết quả làm da tệ hơn ảnh gốc: OK")
+    # lỗi thật 0.13.0 (Lightroom): da 12.3 -> 8.0 nhưng trắng 2.8 -> 6.2 vẫn được nhận -> giờ không nhận
+    assert look.guard_ok({"da": 8.0, "trắng": 6.2}, {"da": 12.3, "trắng": 2.8}) == (False, "trắng")
+    assert look.guard_ok({"da": 8.0, "trắng": 3.5}, {"da": 12.3, "trắng": 2.8}) == (True, "")
+    assert look.guard_ok({"da": 15.0, "trắng": 1.0}, base) == (False, "da")
+    print("[da, trắng] không nhận kết quả làm da hay trắng tệ hơn ảnh gốc: OK")
 
 
 def test_probe_as_shot():
@@ -534,6 +576,7 @@ if __name__ == "__main__":
     test_transfer()
     test_skin_guard()
     test_probe_as_shot()
+    test_dress_kept_by_default()
     test_match_ref_dress_keep_flowers()
     test_overcast_sky_kept()
     print("LOOK OK")
