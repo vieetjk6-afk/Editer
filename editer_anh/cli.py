@@ -276,8 +276,8 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
             return render
     n_reps = a.so_anh_dai_dien or (4 if ps_obj else 6)
     try:
-        lk, shots, info = look.copy_color(photos, scenes, embs, ref, segment, _log, factory,
-                                          n_reps, a.so_luot, seg_all)
+        looks, shots, info = look.copy_color(photos, scenes, embs, ref, segment, _log, factory,
+                                             n_reps, a.so_luot, seg_all)
     finally:
         if ps_obj is not None:
             psmod.cleanup(folder)
@@ -297,11 +297,10 @@ def _copy_color(a, folder: Path, m: dict | None, photos: list, scenes: list, emb
     else:
         _log(f"Ước lượng (chưa kiểm tra bằng Camera Raw): {look.fmt_report(info['mo_phong'])}")
     _log("  (ΔE dưới 2: mắt gần như không phân biệt; 2-5: gần; trên 5: còn khác rõ)")
-    cams = [look.Shot(1e6 / p.as_shot_temp if p.as_shot_temp else None,
-                      p.as_shot_tint if p.as_shot_temp else None, 0.0) for p in photos]
-    lk, shots = _blend(lk, shots, cams, a.do_manh)
+    cams = look.as_shot_shots(photos)
     vals, curves, tpls = [], [], []
-    for ph, sh in zip(photos, shots):
+    for ph, lk, sh, cam in zip(photos, looks, shots, cams):
+        lk, (sh,) = _blend(lk, [sh], [cam], a.do_manh)
         v, crv, tpl = _compose_jpg(m, ph, lk, sh, a.khong_mask)
         vals.append(v)
         curves.append(crv)

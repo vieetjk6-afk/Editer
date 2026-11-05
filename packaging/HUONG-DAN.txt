@@ -5,6 +5,20 @@ Bấm đúp  "Editer Anh.exe"  -> cửa sổ giao diện (bấm nút, kéo thả
 Bên trái có 5 mục: Chép màu từ ảnh mẫu · Chỉnh theo phong cách · Học phong cách · Kiểm tra Photoshop
 · Cập nhật. Kết quả hiện ngay trong cửa sổ: độ lệch màu (ΔE) từng vùng + ảnh mẫu / gốc / sau.
 
+MỚI Ở BẢN 0.9 — SỬA THEO NHẬT KÝ THẬT (ảnh mẫu rèm đỏ / rèm trắng / rạp ngoài trời)
+ - KHÔNG ép độ sáng theo cả ảnh mẫu: ảnh mẫu rèm đỏ tối chỉ có khuôn mặt là sáng -> bản cũ ép rèm
+   trắng của bạn thành xám, cả ảnh tối đục. Giờ độ sáng theo: DA (mặt), ĐỒ TRẮNG THẬT (chỉ khi ảnh mẫu
+   có đồ trắng sáng) và điểm đen.
+ - Màu trắng và màu da lấy từ ảnh mẫu được chặn trong khoảng hợp lý: ánh rèm đỏ hắt lên da / váy
+   không bị chép theo (hết mặt cam đỏ, hoa tím thành đỏ, rèm trắng ngả hồng).
+ - Nhiệt độ màu / Tint / Exposure không chạy quá xa ảnh gốc: khoảng ±60 mired (5500K -> 4100..8100K),
+   Tint ±20, Exposure ±1,2 — trừ khi chính ảnh gốc đang ám màu mạnh (máy để sai cân bằng trắng).
+   Bản 0.8 từng đẩy lên 16.000K.
+ - Ảnh theo các ảnh mẫu KHÁC NHAU -> mỗi nhóm một bộ chỉnh màu riêng (dùng chung một bộ thì phải
+   thoả hiệp, không giống mẫu nào).
+ - Nhớ độ lệch cân bằng trắng so với Camera Raw theo đời máy (Nikon Z5 II: tint lệch ~50): đo một lần
+   khi chép màu có Photoshop, các lần sau tự khớp (file wb-calib.json trong thư mục dữ liệu).
+
 MỚI Ở BẢN 0.8 — CHÉP MÀU TỪ ẢNH MẪU CHÍNH XÁC HƠN
  - NHIỀU ẢNH MẪU KHÁC CẢNH: mỗi ảnh RAW tự theo ảnh mẫu GIỐNG CẢNH NHẤT (AI so nội dung ảnh) —
    ảnh trong nhà theo mẫu trong nhà, ngoài trời theo mẫu ngoài trời — thay vì trộn tất cả ảnh mẫu

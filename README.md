@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.8)
+## Editer Ảnh (bản 0.9)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
@@ -49,6 +49,11 @@ Có 3 chức năng:
      chroma 12 — trước đây ảnh mẫu nhiều gỗ cam cho "trắng" a*=+21, b*=+35); ám màu vùng
      tối/sáng chỉ đo trên điểm xám thật (không lẫn rèm đỏ/áo màu), bỏ vùng < 3% ảnh. Màu
      áo được **giữ như ảnh gốc** (so với gốc, không so với ảnh mẫu).
+   - **0.9 — mục tiêu bền với nội dung:** bỏ độ sáng giữa / điểm trắng P98 của cả ảnh khỏi mục tiêu (thay
+     bằng độ sáng của đồ trắng thật `white_L`, chỉ khi ảnh mẫu có đồ trắng sáng >= 72); `sane_ref` chặn màu
+     trắng ảnh mẫu (a* ±2,5, b* -6..10) và màu da (độ đậm <= 32, tông 35-70°); WB/tint/EV của ảnh đại diện
+     giới hạn quanh As Shot (±60 mired, ±20, ±1,2; nới theo độ ám của chính ảnh); mỗi nhóm ảnh theo cùng ảnh
+     mẫu chính có look riêng; nhớ độ lệch As Shot so với Camera Raw theo đời máy (`wb-calib.json`).
    - **0.8 — ảnh mẫu theo cảnh:** mỗi ảnh đại diện có mục tiêu riêng = trung bình số đo của các ảnh
      mẫu giống cảnh nhất (CLIP, trọng số exp((sim - max)/0,03), bỏ < 0,2); số đo thiếu lấy theo cả bộ
      (`look.scene_target`, `Rep.target`). Giống ý "ảnh tham chiếu gần nhất" của Imagen/Deep Preset.

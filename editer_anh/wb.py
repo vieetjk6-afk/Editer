@@ -46,6 +46,35 @@ _ILLUM_K = {1: 5500.0, 2: 4150.0, 3: 2850.0, 4: 5500.0, 9: 5500.0, 10: 6500.0, 1
             19: 6500.0, 20: 5500.0, 21: 6500.0, 22: 7500.0, 23: 5000.0, 24: 3200.0}
 
 INDEX = Path.home() / "Editer" / "dcp-index.json"
+CALIB = Path.home() / "Editer" / "wb-calib.json"     # độ lệch As Shot "tool tính" so với Camera Raw, theo đời máy
+
+
+def _load_calib() -> dict:
+    try:
+        return json.loads(CALIB.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def calib_of(model: str | None) -> tuple[float, float] | None:
+    c = _load_calib().get(norm(model))
+    return (float(c["mired"]), float(c["tint"])) if c else None
+
+
+def save_calib(model: str | None, d_mired: float, d_tint: float) -> None:
+    """Ghi nhớ độ lệch (cộng dồn vào số đã nhớ): lần sau — kể cả khi không mở Photoshop, khi học / chỉnh
+    theo phong cách — As Shot của đời máy này khớp Camera Raw."""
+    if not norm(model):
+        return
+    data = _load_calib()
+    old = data.get(norm(model), {"mired": 0.0, "tint": 0.0, "n": 0})
+    data[norm(model)] = {"mired": old["mired"] + d_mired, "tint": old["tint"] + d_tint, "n": old.get("n", 0) + 1,
+                         "may": model}
+    try:
+        CALIB.parent.mkdir(parents=True, exist_ok=True)
+        CALIB.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def norm(s: str | None) -> str:
@@ -200,6 +229,22 @@ def estimate(make: str | None, model: str | None, mult) -> tuple[float, float, s
         return None
     neutral = 1.0 / mult
     neutral /= neutral.max()
+    return _estimate(make, model, neutral)
+
+
+def calibrated(model: str | None, temp: float | None, tint: float | None, src: str | None):
+    """As Shot đã bù theo độ lệch Camera Raw đã nhớ (chỉ cho máy không có trong LibRaw).
+    Dùng khi CHÉP MÀU (cần số tuyệt đối khớp Camera Raw). Học / chỉnh theo phong cách thì không cần:
+    ở đó cân bằng trắng tính tương đối so với As Shot của chính tool nên độ lệch tự triệt tiêu."""
+    if temp is None or src in (None, "libraw"):
+        return temp, tint
+    c = calib_of(model)
+    if not c or 1e6 / temp + c[0] <= 20:
+        return temp, tint
+    return 1e6 / (1e6 / temp + c[0]), (tint or 0.0) + c[1]
+
+
+def _estimate(make, model, neutral):
     prof = find_dcp(make, model)
     if prof:
         r = neutral_to_temp_tint(neutral, prof["cm1"], prof["cm2"], prof["t1"], prof["t2"])

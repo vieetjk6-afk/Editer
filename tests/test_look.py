@@ -76,7 +76,8 @@ def render(img, lk: Look, sh: Shot, k=look.DEFAULT, base_shot=AS_SHOT, reg=None)
 def stats_of(img, reg, seed=0, ref=False):
     s, idx = look.make_sample(img, reg, seed=seed)
     sel = look.select(s, ref=ref)
-    return s, idx, sel, look.measure(s.px, sel)
+    m = look.measure(s.px, sel)
+    return s, idx, sel, (look.sane_ref(m) if ref else m)     # như load_reference
 
 
 TRUE_LOOK = Look(curve=np.array([22.0, 62, 100, 158, 200, 238]),
@@ -352,6 +353,41 @@ def test_same_photo_pixel_match():
     assert out_de["điểm"] < 3.0 and out_de["điểm"] <= out_de["vùng"] + 0.05, out_de
 
 
+def test_dark_red_reference_no_mud():
+    """Lỗi thật (bản 0.8.0, ảnh mẫu rèm đỏ tối): chỗ sáng nhất ảnh mẫu chỉ là mặt (L~64), màu trắng và
+    da bị ánh đỏ hắt lên -> tool ép rèm trắng của ảnh RAW thành xám, đẩy nhiệt độ màu lên 16000K, mặt
+    cam đỏ. Giờ: rèm trắng vẫn sáng, không ngả hồng; nhiệt độ màu không chạy xa As Shot; da không cam đỏ."""
+    ref_img, rreg = scene(30, skin_lab=(64, 30, 26))                # da bị ánh đỏ hắt lên
+    lab = color.srgb_to_lab(ref_img.reshape(-1, 3) / 255.0).reshape(ref_img.shape)
+    bg = (rreg == OTHER) | (rreg == SKY) | (rreg == PLANT)
+    lab[bg] = (16, 34, 16)                                         # rèm đỏ tối phủ hết phông
+    rreg = np.where(bg, OTHER, rreg).astype(np.uint8)
+    dress = rreg == CLOTHES
+    lab[dress & (lab[..., 0] > 80)] = (82, 9, 9)                   # váy trắng nhưng ánh đỏ (hồng)
+    ref_img = (color.lab_to_srgb(lab.reshape(-1, 3)).reshape(ref_img.shape) * 255 + 0.5).astype(np.uint8)
+    _, _, ref_sel, ref = stats_of(ref_img, rreg, ref=True)
+    assert np.hypot(*ref["neutral"]) <= np.hypot(2.5, 10.0) + 1e-6, ref["neutral"]
+    target, reg = scene(31)                                        # tường be + váy trắng sáng
+    s, idx, sel, m0 = stats_of(target, reg)
+    keep = {"clothes": m0["clothes"]} if "clothes" in m0 else None
+    lk, shots = look.solve([look.Rep(s.px, sel, Look(), AS_SHOT, s.reg, keep)], ref, ref_sel, Look(),
+                           [AS_SHOT], [AS_SHOT], use_local=False)
+    out = render(target, lk, shots[0])
+    lab0 = color.srgb_to_lab(target.reshape(-1, 3) / 255.0).reshape(target.shape)
+    lab1 = color.srgb_to_lab(out.reshape(-1, 3) / 255.0).reshape(out.shape)
+    white = (reg == CLOTHES) & (lab0[..., 0] > 85)
+    face = reg == FACE
+    k_new = 1e6 / shots[0].mired
+    wl, wa = lab1[white, 0].mean(), lab1[white, 1].mean()
+    fa, fb = lab1[face, 1].mean(), lab1[face, 2].mean()
+    print(f"[ảnh mẫu rèm đỏ tối] váy trắng L {lab0[white, 0].mean():.0f} -> {wl:.0f}, a* {wa:+.1f}; "
+          f"nhiệt độ {k_new:.0f}K; da a*,b* = {fa:+.1f},{fb:+.1f} (độ đậm {np.hypot(fa, fb):.0f})")
+    assert wl > 80, "váy/rèm trắng bị ép tối theo ảnh mẫu"
+    assert wa < 4.0, "màu trắng bị nhuộm hồng theo ánh rèm đỏ"
+    assert 4100 < k_new < 8200, "nhiệt độ màu chạy quá xa As Shot"
+    assert np.hypot(fa, fb) < 36, "da bị cam đỏ theo ánh rèm"
+
+
 def test_xmp_roundtrip(tmp: Path):
     vals, curve = look.xmp_values(TRUE_LOOK, TRUE_SHOT)
     p = tmp / "rt.xmp"
@@ -394,6 +430,7 @@ if __name__ == "__main__":
     test_flowers_keep_color()
     test_scene_matched_references()
     test_same_photo_pixel_match()
+    test_dark_red_reference_no_mud()
     with tempfile.TemporaryDirectory() as d:
         test_xmp_roundtrip(Path(d))
     test_transfer()

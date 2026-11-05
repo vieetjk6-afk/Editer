@@ -460,6 +460,8 @@ def measure(px: np.ndarray, sel: Sel) -> dict:
         # (váy, L~92) với "xám" tối hơn (tường, vest xám, L~50) — không thì cân bằng trắng bị đẩy quá tay.
         nl = lab[sel.neutral]
         m["neutral"] = (nl[:, 1:] * (86.0 / (nl[:, :1] + 16.0))).mean(axis=0)
+        hi = nl[:, 0] >= np.percentile(nl[:, 0], 50)
+        m["white_L"] = np.array([nl[hi, 0].mean()])        # đồ trắng sáng cỡ nào (váy, rèm, tường)
     for name in ("skin", "sky", "plant", "clothes"):
         idx = getattr(sel, name)
         if idx is not None:
@@ -473,11 +475,30 @@ def measure(px: np.ndarray, sel: Sel) -> dict:
 
 # Độ sáng chung (giữa) phụ thuộc NỘI DUNG (phông rèm tối vs tường hoa sáng) -> gần như không ép;
 # độ sáng do DA quyết định (mặt sáng như ảnh mẫu), điểm đen/trắng là "chất" của look.
-_W = {"tone": np.array([0.3, 0.08, 0.12]), "neutral": np.array([3.0, 3.0]), "skin": np.array([1.5, 3.0, 3.0]),
+_W = {"tone": np.array([0.3, 0.0, 0.0]), "white_L": np.array([0.25]),
+      "neutral": np.array([3.0, 3.0]), "skin": np.array([1.5, 3.0, 3.0]),
       "sky": np.array([1.2, 1.5, 1.5]), "plant": np.array([1.0, 1.5, 1.5]),
       "shadow": np.array([0.6, 0.6]), "clothes": np.array([1.0, 2.0, 2.0]),
       "pix": np.array([0.35, 0.5, 0.5])}   # mỗi điểm ảnh (nhiều điểm -> tổng lớn: khớp cùng khung là chính xác nhất)
 KEEP_KEYS = ("clothes",)   # số đo phải GIỮ như ảnh gốc (không khớp theo ảnh mẫu)
+
+
+WHITE_MIN = 72.0     # "trắng" của ảnh mẫu tối hơn mức này = phông xám / trong bóng -> không dùng làm điểm trắng
+
+
+def sane_ref(st: dict) -> dict:
+    """Mục tiêu lấy từ ảnh mẫu, chặn trong khoảng hợp lý: màu trắng và màu da của ảnh mẫu hay bị ánh
+    màu phông hắt lên (rèm đỏ -> trắng hồng, da đỏ cam). Chép nguyên thì ảnh của bạn bị nhuộm theo."""
+    st = dict(st)
+    if "neutral" in st:   # trắng: cho ấm/lạnh theo gu (b*), nhưng hầu như không hồng/xanh lá (a*)
+        a, b = np.asarray(st["neutral"], float)
+        st["neutral"] = np.array([np.clip(a, -2.5, 2.5), np.clip(b, -6.0, 10.0)])
+    if "skin" in st:      # da: tông 35-70° (Lab), độ đậm <= 32 — da thật dưới ánh sáng bình thường
+        L, a, b = np.asarray(st["skin"], float)
+        c, h = float(np.hypot(a, b)), float(np.degrees(np.arctan2(b, a)))
+        c, h = min(c, 32.0), float(np.clip(h, 35.0, 70.0))
+        st["skin"] = np.array([L, c * np.cos(np.radians(h)), c * np.sin(np.radians(h))])
+    return st
 
 
 def diff(m: dict, ref: dict, sel: Sel, ref_sel: Sel, keep: dict | None = None) -> np.ndarray:
@@ -487,6 +508,8 @@ def diff(m: dict, ref: dict, sel: Sel, ref_sel: Sel, keep: dict | None = None) -
         target = (keep or {}).get(key) if key in KEEP_KEYS else ref.get(key)
         if target is None:
             continue
+        if key == "white_L" and float(np.ravel(target)[0]) < WHITE_MIN:
+            continue          # ảnh mẫu không có đồ trắng thật sáng (rèm xám tối...) -> không ép
         parts.append(np.ravel(_W[key] * (m[key] - target)))
     return np.concatenate(parts) if parts else np.zeros(0)
 
@@ -508,7 +531,13 @@ def report(stats: list[dict], ref: dict, keeps: list | None = None, refs: list |
     v = [float(np.hypot(*(m["neutral"] - ref["neutral"]))) for m in stats if "neutral" in m and "neutral" in ref]
     if v:
         out["trắng"] = float(np.mean(v))
-    out["sáng tối"] = float(np.mean([np.mean(np.abs(m["tone"][[0, 2]] - ref["tone"][[0, 2]])) for m in stats]))
+    v = []
+    for m in stats:
+        d = [abs(float(m["tone"][0] - ref["tone"][0]))]
+        if "white_L" in m and "white_L" in ref and float(ref["white_L"][0]) >= WHITE_MIN:
+            d.append(abs(float(m["white_L"][0] - ref["white_L"][0])))
+        v.append(np.mean(d))
+    out["sáng tối"] = float(np.mean(v))
     if keeps:
         v = [float(color.delta_e2000(m["clothes"], kp["clothes"])) for m, kp in zip(stats, keeps)
              if "clothes" in m and kp and "clothes" in kp]
@@ -646,11 +675,14 @@ def bands_ok(reps: list[Rep], ref: dict) -> np.ndarray:
     return ok
 
 
+WB_RANGE = (60.0, 20.0, 1.2)   # chép màu: tối đa ±60 mired (5500K -> ~4100..8100K), Tint ±20, Exposure ±1,2
+
+
 def solve(reps: list[Rep], ref: dict, ref_sel: Sel, look0: Look, shots0: list[Shot],
           priors: list[Shot], k: Consts = DEFAULT, fix_look: bool = False,
           max_nfev: int = 50, offsets: list[dict] | None = None, reg: float = REG,
           prox: tuple | None = None, gmap: tuple | None = None,
-          use_local=(True, True), only_skin: bool = False) -> tuple[Look, list[Shot]]:
+          use_local=(True, True), only_skin: bool = False, wb_range=WB_RANGE) -> tuple[Look, list[Shot]]:
     """Tìm thông số để số đo (mô phỏng [+ phần bù]) khớp ảnh mẫu.
     offsets: phần chênh "Camera Raw thật - mô phỏng" của từng ảnh (từ vòng kiểm tra).
     prox = (x_ref, mu): "vùng tin cậy" — phạt đi xa x_ref (mu càng lớn bước càng ngắn).
@@ -681,6 +713,18 @@ def solve(reps: list[Rep], ref: dict, ref_sel: Sel, look0: Look, shots0: list[Sh
         free = np.zeros(len(x0), bool)
         free[38:42] = True
         lo[~free], hi[~free] = x0[~free] - 1e-6, x0[~free] + 1e-6
+    if wb_range is not None:   # không đẩy cân bằng trắng / sáng tối quá xa ảnh gốc (As Shot)
+        dm0, dt0, de = wb_range
+        for (pos, n_, wb), pr, r in zip(_layout(shots0), priors, reps):
+            if wb and pr.mired is not None:
+                # màu trắng của CHÍNH ảnh gốc đang ám mạnh (máy để sai cân bằng trắng) -> cho chỉnh xa hơn
+                m0 = measure(r.px, r.sel)
+                ca, cb = (np.abs(m0["neutral"]) if "neutral" in m0 else (0.0, 0.0))
+                dm, dt = max(dm0, 6.0 * float(cb)), max(dt0, 3.0 * float(ca))
+                lo[pos], hi[pos] = max(lo[pos], pr.mired - dm), min(hi[pos], pr.mired + dm)
+                lo[pos + 1], hi[pos + 1] = max(lo[pos + 1], (pr.tint or 0) - dt), min(hi[pos + 1], (pr.tint or 0) + dt)
+            e = pos + n_ - 1
+            lo[e], hi[e] = max(lo[e], pr.ev - de), min(hi[e], pr.ev + de)
     x0 = np.clip(x0, lo, hi)
     lay = _layout(shots0)
 
@@ -843,6 +887,16 @@ def transfer(rep_shot: Shot, app_r, app_j, cam_r: Shot, cam_j: Shot, y_r: float,
     return Shot(float(np.clip(m, 20, 500)), float(np.clip(t, -150, 150)), ev)
 
 
+def as_shot_shots(photos) -> list[Shot]:
+    """As Shot của từng ảnh (đã bù độ lệch Camera Raw đã nhớ cho máy mới) — dạng Shot."""
+    from . import wb as _wb
+    out = []
+    for p in photos:
+        t, ti = _wb.calibrated(p.model, p.as_shot_temp, p.as_shot_tint, getattr(p, "wb_src", None))
+        out.append(Shot(1e6 / t if t else None, ti if t else None, 0.0))
+    return out
+
+
 def _calibrate_as_shot(photos, reps: list[int], cams: list[Shot], acr: dict, log) -> list[Shot]:
     """Camera Raw cho biết As Shot THẬT của ảnh đại diện (đọc từ ảnh vừa dựng): dùng đúng số đó;
     As Shot tool tự tính cho các ảnh khác cùng đời máy được bù theo độ lệch trung vị."""
@@ -864,7 +918,11 @@ def _calibrate_as_shot(photos, reps: list[int], cams: list[Shot], acr: dict, log
         dm = float(np.median([d[0] for d in ds]))
         dt = float(np.median([d[1] for d in ds]))
         log(f"  As Shot theo Camera Raw ({model}): tool tính lệch {dm:+.1f} mired / tint {dt:+.1f}"
-            + (" -> đã bù cho cả lô" if abs(dm) > 1 or abs(dt) > 1 else " (khớp)"))
+            + (" -> đã bù cho cả lô và ghi nhớ cho lần sau" if abs(dm) > 1 or abs(dt) > 1 else " (khớp)"))
+        srcs = {p.wb_src for p in photos if p.model == model}
+        if (abs(dm) > 1 or abs(dt) > 1) and srcs and "libraw" not in srcs:
+            from . import wb as _wb
+            _wb.save_calib(model, dm, dt)
         for i, p in enumerate(photos):
             if i not in exact and p.model == model and cams[i].mired is not None:
                 cams[i] = Shot(cams[i].mired + dm, (cams[i].tint or 0.0) + dt, 0.0)
@@ -1155,8 +1213,8 @@ def load_reference(paths, segment=None, embedder=None) -> Reference:
         regs.append(s.reg)
         globs.append(s.glob + n0)
         n0 += len(s.px)
-        items.append({"ten": Path(str(p)).name, "stats": measure(s.px, select(s, ref=True)), "emb": None,
-                      "img": img})
+        items.append({"ten": Path(str(p)).name, "stats": sane_ref(measure(s.px, select(s, ref=True))),
+                      "emb": None, "img": img})
     s = Sample(np.concatenate(pxs), np.concatenate(regs), np.concatenate(globs))
     sel = select(s, ref=True)
     emb = None
@@ -1166,7 +1224,7 @@ def load_reference(paths, segment=None, embedder=None) -> Reference:
             it["emb"] = e / np.linalg.norm(e)
         e = es.mean(axis=0)
         emb = e / np.linalg.norm(e)
-    return Reference(s, sel, measure(s.px, sel), emb, items)
+    return Reference(s, sel, sane_ref(measure(s.px, sel)), emb, items)
 
 
 def _edges(img: np.ndarray, w: int = 160) -> np.ndarray:
@@ -1230,7 +1288,7 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
     """Chép màu ảnh mẫu cho cả lô.
     photos: các raw.Photo (có preview, as_shot_temp/tint, time).
     render_factory(reps) -> render(i, look, shot) (dựng bằng Camera Raw thật), hoặc None.
-    -> (look dùng chung, shot từng ảnh, thông tin)"""
+    -> (look của từng ảnh — chung cho cả nhóm theo cùng ảnh mẫu, shot từng ảnh, thông tin)"""
     n = len(photos)
     times = [p.time or 0.0 for p in photos]
     clip_hi = [float(np.mean(p.preview.reshape(-1, 3).max(axis=1) > 250)) for p in photos]
@@ -1251,8 +1309,7 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
     regmaps = {}
     for i in (range(n) if seg_all else reps):
         regmaps[i] = segment(photos[i].preview) if segment else None
-    cams = [Shot(1e6 / p.as_shot_temp if p.as_shot_temp else None,
-                 p.as_shot_tint if p.as_shot_temp else None, 0.0) for p in photos]
+    cams = as_shot_shots(photos)
     render = render_factory([photos[i] for i in reps]) if render_factory is not None else None
     base_imgs = None
     if render is not None:
@@ -1298,35 +1355,72 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
             + (" <- theo ảnh mẫu giống cảnh nhất: " + ", ".join(
                 f"{ref.items[k]['ten']} ({w:.0%})" for k, w in used[:3]) if used else ""))
     priors = [replace(cams[i]) for i in reps]
-    log("Đang tìm thông số (mô phỏng)...")
-    # Chưa kiểm tra được mask AI của Camera Raw -> ước lượng ban đầu chỉ dùng chỉnh toàn ảnh
-    lk, shots = solve(rep_objs, ref.stats, ref.sel, Look(), [replace(c) for c in priors], priors,
-                      use_local=False)
-    keeps = [r.keep for r in rep_objs]
-    pred = [measure(simulate(r.px, r.cur_look, r.cur_shot, lk, s, reg=r.reg), r.sel) for r, s in zip(rep_objs, shots)]
-    info["mo_phong"] = report(pred, ref.stats, keeps, [r.target for r in rep_objs])
-    log(f"  trên mô phỏng: {fmt_report(info['mo_phong'])}")
+    # Ảnh theo các ảnh mẫu KHÁC NHAU (rèm trắng / rèm đỏ / rạp ngoài trời) -> mỗi nhóm một bộ chỉnh màu
+    # riêng; dùng chung 1 bộ thì phải thoả hiệp giữa các mẫu và không giống mẫu nào.
+    groups = {}
+    for j in range(len(reps)):
+        groups.setdefault(rep_refs[j][0][0] if rep_refs[j] else -1, []).append(j)
+    groups = list(groups.values())
+    if len(groups) > 1:
+        log(f"Các ảnh theo {len(groups)} ảnh mẫu khác nhau -> mỗi nhóm một bộ chỉnh màu riêng.")
+    rep_look, shots = [None] * len(reps), [None] * len(reps)
+    preds, reports, hists, useds, kept, imgs_out = [], [], [], [], [], [None] * len(reps)
+    for g in groups:
+        sub = [rep_objs[j] for j in g]
+        pr_g = [priors[j] for j in g]
+        log("Đang tìm thông số (mô phỏng)" + (f" cho {', '.join(Path(photos[reps[j]].path).name for j in g)}"
+                                             if len(groups) > 1 else "") + "...")
+        # Chưa kiểm tra được mask AI của Camera Raw -> ước lượng ban đầu chỉ dùng chỉnh toàn ảnh
+        lk_g, sh_g = solve(sub, ref.stats, ref.sel, Look(), [replace(c) for c in pr_g], pr_g, use_local=False)
+        pred = [measure(simulate(r.px, r.cur_look, r.cur_shot, lk_g, sh, reg=r.reg), r.sel)
+                for r, sh in zip(sub, sh_g)]
+        rp_sim = report(pred, ref.stats, [r.keep for r in sub], [r.target for r in sub])
+        preds.append((rp_sim, len(g)))
+        log(f"  trên mô phỏng: {fmt_report(rp_sim)}")
+        if render is not None:
+            log(f"Kiểm tra bằng Camera Raw thật ({len(g)} ảnh x tối đa {iters + 1} lượt):")
+            best, hist, used = refine(sub, (lambda ii, lk, sh, g=g: render(g[ii], lk, sh)), segment, ref.stats,
+                                      ref.sel, lk_g, sh_g, pr_g, iters=iters, log=log,
+                                      bases0=[bases0[j] for j in g], base_imgs=[base_imgs[j] for j in g])
+            lk_g, sh_g = best[0], best[1]
+            rp = dict(best[3])
+            kept.append(bool(rp.pop("_giu_goc", False)))
+            reports.append((rp, len(g)))
+            hists += hist
+            useds.append(used)
+            for jj, j in enumerate(g):
+                imgs_out[j] = best[4][jj]
+        for jj, j in enumerate(g):
+            rep_look[j], shots[j] = lk_g, sh_g[jj]
+
+    def _merge(rs):
+        out = {}
+        for rp, w in rs:
+            for key, v in rp.items():
+                out.setdefault(key, []).append((v, w))
+        return {key: float(sum(v * w for v, w in vw) / sum(w for _, w in vw)) for key, vw in out.items()}
+
+    info["mo_phong"] = _merge(preds)
     if render is not None:
-        log(f"Kiểm tra bằng Camera Raw thật ({len(reps)} ảnh x tối đa {iters + 1} lượt):")
-        best, hist, used = refine(rep_objs, render, segment, ref.stats, ref.sel, lk, shots, priors,
-                                  iters=iters, log=log, bases0=bases0, base_imgs=base_imgs)
-        lk, shots = best[0], best[1]
-        rp = dict(best[3])
-        info["giu_goc"] = bool(rp.pop("_giu_goc", False))
-        info["camera_raw"], info["lich_su"], info["mask_ai"] = rp, hist, {"da": used[0], "nen": used[1]}
-        info["anh_dai_dien"] = [{"ten": Path(photos[i].path).name, "goc": base_imgs[j], "ket_qua": img,
+        info["camera_raw"], info["lich_su"] = _merge(reports), hists
+        info["giu_goc"] = all(kept)
+        da = [u[0] for u in useds]
+        info["mask_ai"] = {"da": True if all(d is True for d in da) else "mo_phong" if "mo_phong" in da else False,
+                           "nen": all(u[1] is True for u in useds)}
+        info["anh_dai_dien"] = [{"ten": Path(photos[i].path).name, "goc": base_imgs[j], "ket_qua": imgs_out[j],
                                  "nguon": "camera_raw", "mau": rep_refs[j][0][0] if rep_refs[j] else 0}
-                                for j, (i, img) in enumerate(zip(reps, best[4]))]
+                                for j, i in enumerate(reps)]
     else:   # xem trước bằng mô phỏng (gần đúng)
         info["anh_dai_dien"] = []
         for j, i in enumerate(reps):
             pv = photos[i].preview
-            y = simulate(pv.reshape(-1, 3) / 255.0, Look(), cams[i], lk, shots[j],
+            y = simulate(pv.reshape(-1, 3) / 255.0, Look(), cams[i], rep_look[j], shots[j],
                          reg=regmaps[i].reshape(-1) if regmaps.get(i) is not None else None)
             info["anh_dai_dien"].append({"ten": Path(photos[i].path).name, "goc": pv, "nguon": "mo_phong",
                                          "mau": rep_refs[j][0][0] if rep_refs[j] else 0,
                                          "ket_qua": (np.clip(y, 0, 1).reshape(pv.shape) * 255 + 0.5).astype(np.uint8)})
     rep_shot = {i: shots[j] for j, i in enumerate(reps)}
+    look_of_rep = {i: rep_look[j] for j, i in enumerate(reps)}
     apps = {i: appearance(photos[i].preview) for i in range(n)}
     ys = {i: brightness(photos[i].preview, regmaps.get(i)) for i in range(n)}
     out = []
@@ -1342,4 +1436,4 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
             for i in idx:
                 out[i] = Shot(0.5 * out[i].mired + 0.5 * mm, 0.5 * out[i].tint + 0.5 * tm, out[i].ev)
     info["reps"], info["rep_of"] = reps, rep_of
-    return lk, out, info
+    return [look_of_rep[rep_of[i]] for i in range(n)], out, info
