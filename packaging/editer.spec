@@ -11,9 +11,10 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 datas = [
     (os.path.join(ROOT, "models"), "models"),
     (os.path.join(ROOT, "editer_anh", "gui", "index.html"), os.path.join("editer_anh", "gui")),
+    (os.path.join(ROOT, "lightroom", "Editer.lrplugin"), os.path.join("lightroom", "Editer.lrplugin")),
 ]
 binaries = []
-hidden = ["win32com.client", "pythoncom", "pywintypes", "editer_anh.gui", "editer_anh.gui.api", "editer_anh.dongbo"]
+hidden = ["win32com.client", "pythoncom", "pywintypes", "editer_anh.gui", "editer_anh.gui.api", "editer_anh.dongbo", "editer_anh.lightroom"]
 for pkg in ("sklearn", "rawpy", "onnxruntime", "webview", "pythonnet", "clr_loader"):
     try:
         d, b, h = collect_all(pkg)

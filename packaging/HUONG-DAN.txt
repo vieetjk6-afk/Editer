@@ -2,8 +2,32 @@ EDITER ẢNH — HƯỚNG DẪN NHANH
 ============================
 
 Bấm đúp  "Editer Anh.exe"  -> cửa sổ giao diện (bấm nút, kéo thả ảnh/thư mục vào là chạy).
-Bên trái có 6 mục: Chép màu từ ảnh mẫu · Đồng bộ từ ảnh đã chỉnh · Chỉnh theo phong cách · Học phong
-cách · Kiểm tra Photoshop · Cập nhật. Kết quả hiện ngay trong cửa sổ.
+Bên trái có 7 mục: Chép màu từ ảnh mẫu · Đồng bộ từ ảnh đã chỉnh · Dùng trong Lightroom · Chỉnh theo
+phong cách · Học phong cách · Kiểm tra Photoshop · Cập nhật. Kết quả hiện ngay trong cửa sổ.
+
+BẠN XEM ẢNH BẰNG LIGHTROOM CLASSIC?  (lý do thường gặp của "không thấy thay đổi gì")
+ Các mục Chép màu / Đồng bộ / Chỉnh theo phong cách GHI FILE .xmp cạnh ảnh RAW. Bridge và Camera Raw đọc
+ file đó ngay, nhưng Lightroom Classic KHÔNG tự đọc lại .xmp do chương trình khác ghi (catalog mới là nơi
+ lưu thông số). Muốn thấy: trong Lightroom chọn các ảnh -> Metadata -> Read Metadata from Files (Đọc siêu
+ dữ liệu từ tệp). Cách tiện hơn: dùng plugin bên dưới, Editer chỉnh thẳng trong catalog.
+
+MỚI Ở BẢN 0.11 — DÙNG NGAY TRONG LIGHTROOM CLASSIC (chỉnh thẳng trong catalog đang mở)
+ 1. Mục "Dùng trong Lightroom" -> bấm "Cài vào Lightroom Classic" (1 lần) -> khởi động lại Lightroom.
+    (Dòng lệnh: editer-anh.exe lr-cai. Plugin cài vào %APPDATA%\Adobe\Lightroom\Modules — Lightroom tự
+    nạp, không cần Plug-in Manager. Thư mục Editer.lrplugin cạnh file .exe là bản để cài tay nếu cần.)
+ 2. Trong Lightroom: mở thư mục job, Ctrl+A -> Library -> Plug-in Extras -> "Editer: 1. Chọn ảnh mẫu mỗi
+    cảnh". Editer chia cảnh (giờ chụp + AI), đưa mỗi cảnh 1 ảnh vào bộ sưu tập "Editer – ảnh mẫu cần chỉnh".
+    Cảnh nào đã có ảnh bạn chỉnh thì bỏ qua; ảnh bạn chỉnh từ trước luôn được giữ làm ảnh mẫu.
+ 3. Chỉnh các ảnh đó trong Develop đến khi ưng (muốn chỉnh ảnh khác cùng cảnh cũng được).
+ 4. Quay lại thư mục job, Ctrl+A -> "Editer: 2. Đồng bộ cả cảnh theo ảnh bạn chỉnh". Thấy ngay trong
+    Lightroom; muốn hoàn tác: Edit -> Undo "Editer: đồng bộ theo ảnh bạn chỉnh".
+ Giống mục "Đồng bộ từ ảnh đã chỉnh": lấy đúng thông số ảnh bạn chỉnh cùng cảnh, giữ nhiệt độ màu (chỉ dịch
+ khi ánh sáng đổi thật), cân độ sáng theo da người + ISO / tốc độ / khẩu; không mang sang khung cắt, phối
+ cảnh, xoá vết, cọ tô, gradient. Ảnh có mask AI: Editer hỏi để Lightroom tính lại mask ngay (hoặc để sau:
+ chọn ảnh -> Develop -> Settings -> Update AI Settings). Chỉnh thêm rồi chạy lại bước 2 bao nhiêu lần
+ cũng được — ảnh Editer đã đồng bộ mà bạn chỉnh lại sẽ thành ảnh mẫu.
+ Cần: Lightroom Classic (bản có menu Plug-in Extras; Lightroom bản "cloud" không có plugin). File RAW phải
+ còn trên ổ đĩa (Editer đọc file gốc để chia cảnh, đo da, đo cân bằng trắng gốc).
 
 MỚI Ở BẢN 0.10 — "ĐỒNG BỘ TỪ ẢNH ĐÃ CHỈNH" (cách chắc chắn đúng màu nhất)
  Chép màu từ JPG phải ĐOÁN thông số từ ảnh của người khác (khác máy, khác ánh sáng, khác cảnh) nên

@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.10)
+## Editer Ảnh (bản 0.11)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
@@ -47,6 +47,21 @@ Có 4 chức năng:
 
      Mask AI và mask vùng màu thì giữ lại, Camera Raw tự tính lại trên từng ảnh.
    - Ghi đè `.xmp` cũ thì giữ nguyên sao, nhãn màu, từ khoá (`xmp.carry_meta`).
+   - **0.11 — chạy trong Lightroom Classic:** plugin `lightroom/Editer.lrplugin` (Lua 5.1) làm việc thẳng
+     với catalog, không qua `.xmp`:
+     - lấy ảnh đang chọn và `photo:getDevelopSettings()`;
+     - nhận ra ảnh bạn chỉnh theo thứ tự ưu tiên:
+       1. ảnh tool đã đồng bộ mà chưa đụng lại;
+       2. dấu vân tay chụp ở bước 1, đổi so với lúc đó;
+       3. so với "nền" chung của lô (preset lúc import), rồi `hasEdits`;
+     - gọi `editer-anh.exe lr-dong-bo viec.json ket-qua.json` (`editer_anh/lightroom.py`, dùng chung
+       `dongbo.analyse/decide`);
+     - áp bằng `applyDevelopSettings` trong một `withWriteAccessDo` (một bước Undo).
+
+     Bước 1 `lr-canh` chia cảnh và đưa mỗi cảnh 1 ảnh vào bộ sưu tập để bạn chỉnh. `lr-cai` chép plugin vào
+     `%APPDATA%\Adobe\Lightroom\Modules`, nơi Lightroom tự nạp. Mỗi lần mở giao diện, `lightroom.json` được
+     ghi lại đường dẫn chương trình và plugin cũ được thay. Test chạy plugin bằng Lua 5.1 (lupa) với
+     Lightroom giả (`tests/lr_fake_sdk.lua`) gọi chương trình thật.
 4. **Chép màu theo JPG mẫu** (0.3, `editer_anh/look.py`):
    - AI phân vùng (SegFormer, ONNX) tìm **da, trắng/trung tính, trời, cây** trên ảnh mẫu và
      ảnh RAW. Các số đo cần khớp: màu da, điểm trắng, trời, cây, phân bố sáng tối, ám màu
@@ -163,6 +178,7 @@ máy ảnh của các job.
 | Thư mục | Nội dung |
 |---|---|
 | `editer_anh/` | Mã nguồn Editer Ảnh |
+| `lightroom/Editer.lrplugin/` | Plugin Lightroom Classic (Lua) |
 | `packaging/` | Đóng gói .exe + hướng dẫn |
 | `tests/` | Test (có tạo file DNG giả lập) |
 | `docs/` | Ghi chép phân tích |

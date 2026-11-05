@@ -35,7 +35,7 @@ jobs:
       - name: Cài thư viện
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller scikit-image tokenizers
+          pip install -r requirements.txt pyinstaller scikit-image tokenizers lupa
 
       - name: Tải mô hình AI (CLIP) + tính nhãn cảnh
         run: python packaging/get_model.py models
@@ -53,6 +53,7 @@ jobs:
           python tests/test_capnhat.py
           python tests/test_wb.py
           python tests/test_dongbo.py
+          python tests/test_lightroom.py
           python -c "import webview; print('pywebview', webview.__version__ if hasattr(webview, '__version__') else '?')"
           python tests/test_e2e.py "$env:RUNNER_TEMP\e2e"
 
@@ -61,6 +62,7 @@ jobs:
           pyinstaller --noconfirm packaging/editer.spec
           Get-ChildItem dist/editer-anh -Filter *.exe | ForEach-Object { $_.Name }
           Copy-Item packaging/HUONG-DAN.txt dist/editer-anh/
+          Copy-Item -Recurse lightroom/Editer.lrplugin dist/editer-anh/
           Compress-Archive -Path dist/editer-anh -DestinationPath Editer-Anh-Windows.zip
 
       - name: Thử bản .exe (học + chỉnh thật trên ảnh giả lập)
@@ -90,6 +92,26 @@ jobs:
           Write-Output $out
           if ($out -notmatch "XONG: đồng bộ 29 ảnh") { throw "bản .exe không đồng bộ được" }
           if ($out -notmatch "AI tìm da người") { throw "bản .exe không bật được AI tìm da người" }
+
+      - name: Thử bản .exe cho Lightroom (lr-dong-bo, lr-cai)
+        run: |
+          $files = Get-ChildItem "$env:RUNNER_TEMP\e2e\moi" -Filter *.dng | Sort-Object Name
+          $anh = @()
+          $i = 0
+          foreach ($f in $files) {
+            $e = @{ path = $f.FullName; mau = ($i -eq 0) }
+            if ($i -eq 0) { $e.thong_so = @{ Exposure2012 = 0.3; WhiteBalance = "Custom"; Temperature = 5600; Tint = 5 } }
+            $anh += $e
+            $i++
+          }
+          @{ ai = $true; anh = $anh } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\lr-viec.json"
+          dist/editer-anh/editer-anh.exe lr-dong-bo "$env:RUNNER_TEMP\lr-viec.json" "$env:RUNNER_TEMP\lr-ket-qua.json"
+          $r = Get-Content "$env:RUNNER_TEMP\lr-ket-qua.json" -Raw -Encoding utf8 | ConvertFrom-Json
+          Write-Output ("lr-dong-bo: ok=" + $r.ok + ", " + $r.anh.Count + " ảnh")
+          if (-not $r.ok -or $r.anh.Count -ne 29) { throw "lr-dong-bo trả kết quả sai" }
+          dist/editer-anh/editer-anh.exe lr-cai
+          if (-not (Test-Path "$env:APPDATA\Adobe\Lightroom\Modules\Editer.lrplugin\EditerLR.lua")) { throw "lr-cai không cài được plugin" }
+          if (-not (Test-Path "dist/editer-anh/Editer.lrplugin/Info.lua")) { throw "thiếu plugin trong bản đóng gói" }
 
       - name: Thử giao diện cửa sổ (không bắt buộc — máy build có thể không có màn hình)
         continue-on-error: true

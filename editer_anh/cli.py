@@ -329,6 +329,21 @@ def cmd_dong_bo(a) -> dict:
     return res
 
 
+def cmd_lr(a) -> dict:
+    """Plugin Lightroom gọi: lr-canh / lr-dong-bo <job.json> <out.json>."""
+    from . import lightroom
+    res = lightroom.run_job("canh" if a.lenh == "lr-canh" else "dong-bo", a.job, a.ra, _log, a.luong,
+                            use_ai=not a.khong_ai)
+    if not res.get("ok"):
+        raise SystemExit(1)
+    return res
+
+
+def cmd_lr_cai(a) -> dict:
+    from . import lightroom
+    return lightroom.install(_log)
+
+
 def cmd_kiem_tra_ps(a) -> dict:
     ps_obj, msg = psmod.check()
     if not ps_obj:
@@ -409,8 +424,9 @@ def menu() -> None:
     _log("  3. Chép màu ảnh JPG mẫu cho một thư mục RAW")
     _log("  4. Đồng bộ từ ảnh bạn đã chỉnh (mỗi cảnh chỉnh tay 1 ảnh trong Camera Raw -> cả cảnh theo)")
     _log("  5. Kiểm tra kết nối Photoshop (thử mở 1 ảnh RAW bằng Camera Raw)")
-    _log("  6. Thoát")
-    c = input("\nChọn (1-6): ").strip()
+    _log("  6. Cài plugin Editer vào Lightroom Classic (chỉnh thẳng trong catalog đang mở)")
+    _log("  7. Thoát")
+    c = input("\nChọn (1-7): ").strip()
     try:
         if c == "1":
             dirs = _ask_many("Kéo thả các thư mục job đã chỉnh vào đây", True)
@@ -443,6 +459,8 @@ def menu() -> None:
         elif c == "5":
             f = _ask_path("Kéo thả 1 file RAW (NEF/ARW/CR3...) vào đây: ", False)
             main(["kiem-tra-photoshop", f])
+        elif c == "6":
+            main(["lr-cai"])
     except SystemExit as e:
         if e.code not in (0, None):
             _log(f"\n{e.code}")
@@ -507,6 +525,17 @@ def main(argv=None) -> None:
     d.add_argument("--khong-ai", action="store_true", help="không dùng AI (chia cảnh theo giờ chụp, sáng theo cả ảnh)")
     d.add_argument("--luong", type=int, default=min(8, os.cpu_count() or 4))
     d.set_defaults(func=cmd_dong_bo)
+
+    for name, hlp in (("lr-dong-bo", "(plugin Lightroom gọi) đồng bộ trong catalog"),
+                      ("lr-canh", "(plugin Lightroom gọi) chia cảnh, chọn ảnh mẫu")):
+        q = sub.add_parser(name, help=hlp)
+        q.add_argument("job")
+        q.add_argument("ra")
+        q.add_argument("--khong-ai", action="store_true")
+        q.add_argument("--luong", type=int, default=min(8, os.cpu_count() or 4))
+        q.set_defaults(func=cmd_lr)
+    li = sub.add_parser("lr-cai", help="cài plugin Editer vào Lightroom Classic")
+    li.set_defaults(func=cmd_lr_cai)
 
     k = sub.add_parser("kiem-tra-photoshop", help="kiểm tra kết nối Photoshop (và thử dựng 1 ảnh RAW)")
     k.add_argument("anh", nargs="?")

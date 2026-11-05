@@ -1,0 +1,354 @@
+--[[ EditerLR.lua — phần làm việc với Lightroom Classic: lấy ảnh + thông số trong catalog, gọi editer-anh.exe
+phân tích (đọc file RAW, AI chia cảnh / tìm da), áp kết quả thẳng vào catalog (thấy ngay, Edit > Undo được). ]]
+
+local LrApplication = import 'LrApplication'
+local LrDialogs = import 'LrDialogs'
+local LrFileUtils = import 'LrFileUtils'
+local LrPathUtils = import 'LrPathUtils'
+local LrProgressScope = import 'LrProgressScope'
+local LrTasks = import 'LrTasks'
+
+local Core = require 'EditerCore'
+
+local M = {}
+local TITLE = 'Editer'
+local COLLECTION = 'Editer – ảnh mẫu cần chỉnh'
+local NOT_RAW = { VIDEO = true, JPG = true, JPEG = true, PSD = true, TIFF = true, PNG = true, HEIC = true,
+                  AVIF = true }
+
+---------------------------------------------------------------------------- file
+local function dataDir()
+  local d = LrPathUtils.child(LrPathUtils.getStandardFilePath('home'), 'Editer')
+  if not LrFileUtils.exists(d) then LrFileUtils.createAllDirectories(d) end
+  return d
+end
+
+local function readFile(path)
+  local f = io.open(path, 'rb')
+  if not f then return nil end
+  local s = f:read('*a')
+  f:close()
+  return s
+end
+
+local function writeFile(path, s)
+  local f = assert(io.open(path, 'wb'))
+  f:write(s)
+  f:close()
+end
+
+local function logPath()
+  return LrPathUtils.child(dataDir(), 'nhat-ky.txt')
+end
+
+---------------------------------------------------------------------------- trạng thái (ảnh tool đã đồng bộ, ảnh lúc bước 1)
+local function catalogKey(catalog)
+  local ok, p = pcall(function() return catalog:getPath() end)
+  return (ok and p) or 'catalog'
+end
+
+local function statePath()
+  return LrPathUtils.child(dataDir(), 'lightroom-trang-thai.json')
+end
+
+local function loadState(catalog)
+  local all = {}
+  local s = readFile(statePath())
+  if s then
+    local ok, t = pcall(Core.decode, s)
+    if ok and type(t) == 'table' then all = t end
+  end
+  local key = catalogKey(catalog)
+  local st = all[key] or {}
+  st.snap = st.snap or {}
+  st.sync = st.sync or {}
+  return st, all, key
+end
+
+local function saveState(all, key, st)
+  all[key] = st
+  writeFile(statePath(), Core.encode(all))
+end
+
+---------------------------------------------------------------------------- gọi editer-anh.exe
+local function helperCmd()
+  local s = readFile(LrPathUtils.child(dataDir(), 'lightroom.json'))
+  if s then
+    local ok, t = pcall(Core.decode, s)
+    if ok and type(t) == 'table' and type(t.cmd) == 'table' and #t.cmd > 0 then return t.cmd end
+  end
+  local exe = LrPathUtils.child(LrPathUtils.parent(_PLUGIN.path), 'editer-anh.exe')
+  if LrFileUtils.exists(exe) then return { exe } end
+  return nil
+end
+
+local function runHelper(kind, job)
+  local cmd = helperCmd()
+  if not cmd then
+    return nil, 'Chưa tìm thấy chương trình Editer.\nMở "Editer Anh.exe" → mục "Dùng trong Lightroom" → bấm '
+      .. '"Cài vào Lightroom" (chỉ cần làm 1 lần), rồi chạy lại.'
+  end
+  local dir = LrPathUtils.child(dataDir(), 'lightroom')
+  if not LrFileUtils.exists(dir) then LrFileUtils.createAllDirectories(dir) end
+  local jobPath = LrPathUtils.child(dir, 'viec.json')
+  local outPath = LrPathUtils.child(dir, 'ket-qua.json')
+  writeFile(jobPath, Core.encode(job))
+  pcall(os.remove, outPath)
+  local args = {}
+  for _, a in ipairs(cmd) do args[#args + 1] = a end
+  args[#args + 1] = kind
+  args[#args + 1] = jobPath
+  args[#args + 1] = outPath
+  local status = LrTasks.execute(Core.commandLine(args, WIN_ENV))
+  local s = readFile(outPath)
+  if not s then
+    return nil, 'Editer không chạy được (mã ' .. tostring(status) .. ').\nXem nhật ký: ' .. logPath()
+  end
+  local ok, res = pcall(Core.decode, s)
+  if not ok or type(res) ~= 'table' then return nil, 'Kết quả Editer bị lỗi: ' .. tostring(res) end
+  if not res.ok then return nil, tostring(res.loi or 'Editer báo lỗi') .. '\n\nNhật ký: ' .. logPath() end
+  return res
+end
+
+---------------------------------------------------------------------------- ảnh trong catalog
+local function targetPhotos(catalog)
+  local photos
+  local ok = pcall(function() photos = catalog:getMultipleSelectedOrAllPhotos() end)
+  if not ok or not photos or #photos == 0 then photos = catalog:getTargetPhotos() end
+  return photos or {}
+end
+
+local function collect(photos, progress)
+  local items, other = {}, 0
+  for i, p in ipairs(photos) do
+    local okf, fmt = pcall(function() return p:getRawMetadata('fileFormat') end)
+    if okf and fmt and NOT_RAW[string.upper(tostring(fmt))] then
+      other = other + 1
+    else
+      local path = p:getRawMetadata('path')
+      local s = p:getDevelopSettings() or {}
+      items[#items + 1] = { photo = p, id = tostring(p.localIdentifier), path = path, settings = s,
+                            fp = Core.fingerprint(s), name = LrPathUtils.leafName(path) }
+    end
+    if progress and i % 25 == 0 then progress:setPortionComplete(i, #photos) end
+  end
+  return items, other
+end
+
+local function hasMethod(obj, name)
+  local ok, f = pcall(function() return obj[name] end)
+  return ok and type(f) == 'function'
+end
+
+---------------------------------------------------------------------------- BƯỚC 1: chọn ảnh mẫu mỗi cảnh
+function M.chonAnhMau()
+  local catalog = LrApplication.activeCatalog()
+  local photos = targetPhotos(catalog)
+  if #photos < 2 then
+    LrDialogs.message(TITLE, 'Mở thư mục job, chọn hết ảnh (Ctrl+A) rồi chạy lại.', 'info')
+    return
+  end
+  local progress = LrProgressScope { title = 'Editer: chia cảnh' }
+  progress:setCaption('Đọc thông số trong catalog...')
+  local items, other = collect(photos, progress)
+  if #items < 2 then
+    progress:done()
+    LrDialogs.message(TITLE, 'Không có ảnh RAW nào trong các ảnh đã chọn.', 'info')
+    return
+  end
+  -- ảnh bạn ĐÃ chỉnh từ trước: giữ là ảnh mẫu (không bao giờ bị ghi đè)
+  local st, all, key = loadState(catalog)
+  local roles, baseline = Core.detectRoles(items, { snap = {}, sync = st.sync })
+  local nmau = 0
+  for i = 1, #items do if roles[i] == 'mau' then nmau = nmau + 1 end end
+  if not baseline and nmau == #items and #items > 2 then
+    progress:done()
+    if LrDialogs.confirm('Editer: chưa phân biệt được ảnh nào bạn đã chỉnh',
+        'Mọi ảnh đều có thông số khác nhau (có thể do preset Auto lúc import). Coi như bạn CHƯA chỉnh ảnh nào '
+        .. 'trong các ảnh này? (Ảnh nào bạn chỉnh SAU bước này sẽ là ảnh mẫu.)',
+        'Đúng, chưa chỉnh ảnh nào', 'Huỷ') ~= 'ok' then
+      return
+    end
+    for i = 1, #items do roles[i] = 'dongbo' end
+    progress = LrProgressScope { title = 'Editer: chia cảnh' }
+  end
+  -- ghi lại thông số hiện tại: ảnh nào bạn chỉnh sau bước này = ảnh mẫu
+  for i, it in ipairs(items) do
+    if roles[i] == 'mau' then st.snap[it.id] = nil else st.snap[it.id] = it.fp end
+  end
+  saveState(all, key, st)
+  progress:setCaption(string.format('Editer đang chia cảnh %d ảnh...%s', #items,
+    WIN_ENV and ' Cửa sổ đen là Editer đang chạy — đừng đóng.' or ''))
+  progress:setPortionComplete(0, 1)
+  local res, err = runHelper('lr-canh', Core.buildJob(items, nil, true))
+  progress:done()
+  if not res then
+    LrDialogs.message(TITLE, err, 'critical')
+    return
+  end
+  -- mỗi cảnh chưa có ảnh bạn chỉnh: 1 ảnh (giữa cảnh); cảnh nào cũng có rồi thì mở lại các ảnh mẫu để cân tiếp
+  local reps, done, todo = Core.pickReps(res.canh or {}, roles)
+  local list = #todo > 0 and todo or done
+  local chosen = {}
+  for _, i in ipairs(list) do chosen[#chosen + 1] = items[i].photo end
+  local coll
+  catalog:withWriteAccessDo('Editer: bộ sưu tập ảnh mẫu', function()
+    coll = catalog:createCollection(COLLECTION, nil, true)
+  end, { timeout = 30 })
+  if coll then
+    catalog:withWriteAccessDo('Editer: chọn ảnh mẫu mỗi cảnh', function()
+      local old = coll:getPhotos()
+      if old and #old > 0 then coll:removePhotos(old) end
+      coll:addPhotos(chosen)
+    end, { timeout = 30 })
+    pcall(function() catalog:setActiveSources({ coll }) end)
+  end
+  local head
+  if #todo > 0 then
+    head = string.format('Đã chia %d ảnh thành %d cảnh. %d cảnh chưa có ảnh bạn chỉnh: mỗi cảnh 1 ảnh đã vào '
+      .. 'bộ sưu tập "%s".', #items, reps, #todo, COLLECTION)
+    if #done > 0 then head = head .. string.format(' (%d cảnh đã có ảnh bạn chỉnh — bỏ qua.)', #done) end
+    head = head .. '\n\nBây giờ: chỉnh từng ảnh đó trong Develop đến khi ưng (muốn chỉnh ảnh khác cùng cảnh '
+      .. 'cũng được).'
+  else
+    head = string.format('Cảnh nào (%d cảnh) cũng đã có ảnh bạn chỉnh — các ảnh đó đã vào bộ sưu tập "%s" để '
+      .. 'bạn cân tiếp nếu muốn.', reps, COLLECTION)
+  end
+  LrDialogs.message(TITLE, head .. '\n\nXong: quay lại thư mục job, chọn hết ảnh (Ctrl+A) → Library → '
+    .. 'Plug-in Extras → "Editer: 2. Đồng bộ cả cảnh".'
+    .. (other > 0 and string.format('\n\n(Bỏ qua %d ảnh không phải RAW.)', other) or ''), 'info')
+end
+
+---------------------------------------------------------------------------- BƯỚC 2: đồng bộ cả cảnh
+local function updateAI(catalog, plan)
+  local photos = {}
+  for _, p in ipairs(plan) do
+    if p.ai and hasMethod(p.item.photo, 'updateAISettings') then photos[#photos + 1] = p.item.photo end
+  end
+  if #photos == 0 then return 0 end
+  local progress = LrProgressScope { title = 'Editer: tính lại mask AI' }
+  pcall(function() progress:setCancelable(true) end)
+  local done = 0
+  for i, photo in ipairs(photos) do
+    if progress:isCanceled() then break end
+    progress:setCaption(string.format('Tính lại mask AI %d/%d...', i, #photos))
+    local ok = pcall(function()
+      catalog:withWriteAccessDo('Editer: tính lại mask AI', function() photo:updateAISettings() end,
+        { timeout = 30 })
+    end)
+    if ok then done = done + 1 end
+    progress:setPortionComplete(i, #photos)
+  end
+  progress:done()
+  return done
+end
+
+function M.dongBo()
+  local catalog = LrApplication.activeCatalog()
+  local photos = targetPhotos(catalog)
+  if #photos < 2 then
+    LrDialogs.message(TITLE, 'Mở thư mục job, chọn hết ảnh (Ctrl+A) rồi chạy lại.', 'info')
+    return
+  end
+  local progress = LrProgressScope { title = 'Editer: đồng bộ' }
+  progress:setCaption('Đọc thông số trong catalog...')
+  local items, other = collect(photos, progress)
+  local st, all, key = loadState(catalog)
+  local roles = Core.detectRoles(items, st)
+  local nref, ntodo = 0, 0
+  for i = 1, #items do
+    if roles[i] == 'mau' then nref = nref + 1 else ntodo = ntodo + 1 end
+  end
+  if nref == 0 then
+    progress:done()
+    LrDialogs.message(TITLE, 'Chưa thấy ảnh nào bạn đã chỉnh trong các ảnh đã chọn.\n\n'
+      .. 'Chạy "Editer: 1. Chọn ảnh mẫu mỗi cảnh", chỉnh các ảnh đó trong Develop, rồi chạy lại bước này.', 'info')
+    return
+  end
+  if ntodo == 0 then
+    progress:done()
+    LrDialogs.message(TITLE, 'Mọi ảnh đã chọn đều đã được bạn chỉnh — không còn ảnh nào để đồng bộ.', 'info')
+    return
+  end
+  progress:setCaption(string.format('Editer đang phân tích %d ảnh (%d ảnh bạn chỉnh)...%s', #items, nref,
+    WIN_ENV and ' Cửa sổ đen là Editer đang chạy — đừng đóng.' or ''))
+  progress:setPortionComplete(0, 1)
+  local res, err = runHelper('lr-dong-bo', Core.buildJob(items, roles, true))
+  if not res then
+    progress:done()
+    LrDialogs.message(TITLE, err, 'critical')
+    return
+  end
+  local plan, notes = Core.makePlan(items, res)
+  progress:setCaption(string.format('Áp thông số cho %d ảnh...', #plan))
+  local failed = {}
+  catalog:withWriteAccessDo('Editer: đồng bộ theo ảnh bạn chỉnh', function()
+    for k, p in ipairs(plan) do
+      local ok, e = pcall(function() p.item.photo:applyDevelopSettings(p.settings, 'Editer: đồng bộ') end)
+      if not ok then failed[#failed + 1] = p.item.name .. ': ' .. tostring(e) end
+      if k % 10 == 0 then progress:setPortionComplete(k, #plan) end
+    end
+  end, { timeout = 60 })
+  for _, p in ipairs(plan) do
+    st.sync[p.item.id] = Core.fingerprint(p.item.photo:getDevelopSettings() or {})
+  end
+  saveState(all, key, st)
+  progress:done()
+
+  local nai = 0
+  for _, p in ipairs(plan) do if p.ai then nai = nai + 1 end end
+  local aiMsg = ''
+  if nai > 0 then
+    local canUpdate = false
+    for _, p in ipairs(plan) do
+      if p.ai and hasMethod(p.item.photo, 'updateAISettings') then canUpdate = true break end
+    end
+    if canUpdate and LrDialogs.confirm('Editer: tính lại mask AI?',
+        string.format('%d ảnh mang mask AI (da, trời, chủ thể...) từ ảnh bạn chỉnh. Lightroom cần tính lại mask '
+          .. 'trên từng ảnh (có thể mất vài phút).', nai), 'Tính ngay', 'Để sau') == 'ok' then
+      local n = updateAI(catalog, plan)
+      aiMsg = string.format('\nĐã tính lại mask AI cho %d ảnh.', n)
+    else
+      aiMsg = string.format('\n%d ảnh có mask AI cần Lightroom tính lại: chọn các ảnh đó → Develop → '
+        .. 'Settings → Update AI Settings.', nai)
+    end
+  end
+  local how = {}
+  for k, n in pairs(notes.cach) do how[#how + 1] = string.format('%d ảnh theo %s', n, k) end
+  table.sort(how)
+  local msg = string.format('Đã đồng bộ %d ảnh theo %d ảnh bạn chỉnh.\n'
+    .. 'Muốn hoàn tác: Edit → Undo "Editer: đồng bộ theo ảnh bạn chỉnh".\n\nĐộ sáng: %s.',
+    #plan - #failed, res.so_mau or nref, #how > 0 and table.concat(how, ', ') or '—')
+  if notes.khac_canh > 0 then
+    msg = msg .. string.format('\n%d ảnh ở cảnh chưa có ảnh bạn chỉnh — theo ảnh bạn chỉnh giống nội dung nhất '
+      .. '(chỉnh thêm 1 ảnh ở cảnh đó rồi chạy lại nếu chưa ưng).', notes.khac_canh)
+  end
+  if #notes.khong_mang > 0 then
+    msg = msg .. '\n\nKhông mang sang (chỉ đúng vị trí trong ảnh mẫu): ' .. table.concat(notes.khong_mang, '; ')
+  end
+  msg = msg .. aiMsg
+  if #notes.loi > 0 then
+    msg = msg .. string.format('\n\nBỏ qua %d ảnh không đọc được file: %s', #notes.loi,
+      table.concat(notes.loi, '; '):sub(1, 400))
+  end
+  if #failed > 0 then
+    msg = msg .. string.format('\n\nLightroom không nhận %d ảnh: %s', #failed, table.concat(failed, '; '):sub(1, 400))
+  end
+  if other > 0 then msg = msg .. string.format('\n\n(Bỏ qua %d ảnh không phải RAW.)', other) end
+  LrDialogs.message(TITLE, msg, 'info')
+end
+
+function M.huongDan()
+  LrDialogs.message('Editer trong Lightroom Classic',
+    'Bạn chỉnh tay 1 ảnh mỗi cảnh, Editer làm phần lặp lại cho cả cảnh — ngay trong catalog đang mở.\n\n'
+    .. '1. Mở thư mục job, chọn hết ảnh (Ctrl+A) → Library → Plug-in Extras → "Editer: 1. Chọn ảnh mẫu mỗi cảnh".\n'
+    .. '   Editer chia cảnh và đưa mỗi cảnh 1 ảnh vào bộ sưu tập "' .. COLLECTION .. '".\n'
+    .. '2. Chỉnh từng ảnh đó trong Develop đến khi ưng (WB, tone, HSL, color grading, mask AI...).\n'
+    .. '3. Quay lại thư mục job, Ctrl+A → "Editer: 2. Đồng bộ cả cảnh".\n\n'
+    .. 'Mỗi ảnh lấy ĐÚNG thông số ảnh bạn chỉnh cùng cảnh; nhiệt độ màu giữ như ảnh mẫu (chỉ dịch khi ánh '
+    .. 'sáng đổi thật); độ sáng cân theo da người + ISO / tốc độ / khẩu. Không mang sang: khung cắt, phối cảnh, '
+    .. 'xoá vết, cọ tô, gradient. Ảnh bạn đã chỉnh không bị đụng tới. Chỉnh thêm rồi chạy lại bước 2 bao nhiêu '
+    .. 'lần cũng được.\n\nNhật ký: ' .. logPath(), 'info')
+end
+
+return M

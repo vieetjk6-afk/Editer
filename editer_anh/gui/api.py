@@ -78,6 +78,11 @@ class Api:
                        "tien_do": None, "buoc": "", "bat_dau": None}
         self._rel = None                  # bản mới tìm thấy trên GitHub (để tải)
         self._upd = {"chay": False, "tien_do": None, "exe": None, "loi": None}
+        try:                              # plugin Lightroom luôn gọi đúng bản đang mở (đổi sau mỗi lần cập nhật)
+            from .. import lightroom
+            self._lr = lightroom.register()
+        except Exception as e:
+            self._lr = {"loi": str(e)}
 
     # ------------------------------------------------------------------ thông tin
     def info(self) -> dict:
@@ -97,7 +102,27 @@ class Api:
         return {"phien_ban": __version__, "phong_cach": st, "nhat_ky": str(nhatky.FILE),
                 "windows": sys.platform == "win32", "gpu_tat": GPU_OFF.exists(),
                 "du_lieu": str(STYLE_DIR), "sao_luu": str(STYLE_DIR / "sao-luu"),
-                "co_token": bool(capnhat.load_config().get("github_token"))}
+                "co_token": bool(capnhat.load_config().get("github_token")), "lightroom": self.lr_trang_thai()}
+
+    # ------------------------------------------------------------------ Lightroom Classic
+    def lr_trang_thai(self) -> dict:
+        from .. import lightroom
+        try:
+            st = lightroom.status()
+        except Exception as e:
+            return {"da_cai": False, "loi": str(e)}
+        st["vua_cap_nhat"] = bool(getattr(self, "_lr", {}).get("cap_nhat"))
+        return st
+
+    def lr_cai(self) -> dict:
+        from .. import lightroom
+        notes: list[str] = []
+        try:
+            res = lightroom.install(notes.append)
+        except BaseException as e:
+            return {"ok": False, "loi": f"Không cài được: {e}"}
+        nhatky.note("cài plugin Lightroom: " + res.get("noi_cai", ""))
+        return {"ok": True, **res, "ghi_chu": notes}
 
     def ping(self) -> str:
         return "ok"

@@ -81,6 +81,13 @@ def main(tmp: Path) -> None:
     rd = st["ket_qua"]
     assert rd["so_mau"] == 1 and rd["ghi"] + rd["de"] == 3 and all(a["mau"] == "IMG_0001.dng" for a in rd["anh"]), rd
 
+    # Lightroom Classic: cài plugin vào thư mục Modules (APPDATA giả)
+    assert api.info()["lightroom"]["da_cai"] is False
+    r = api.lr_cai()
+    assert r["ok"] and r["da_cai"], r
+    assert (tmp / "appdata" / "Adobe" / "Lightroom" / "Modules" / "Editer.lrplugin" / "Info.lua").is_file()
+    assert api.info()["lightroom"]["phien_ban"]
+
     # việc lỗi (không có Photoshop trên máy test) -> báo lỗi rõ ràng, không làm sập
     api.bat_dau("kiem-tra-ps", {"raw": str(job / "IMG_0000.dng")})
     st = wait(api, 120)

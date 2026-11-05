@@ -228,6 +228,7 @@
   <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
   <symbol id="i-sync" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 9M20 4v5h-5M20 12a8 8 0 0 1-13.7 5.6L4 15M4 20v-5h5"/></symbol>
+  <symbol id="i-lr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 9v6h3M14 15V9h2a1.6 1.6 0 0 1 0 3.2h-2l2.4 2.8"/></symbol>
   <symbol id="i-update" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
   <symbol id="i-raw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
 </svg>
@@ -236,6 +237,7 @@
   <div class="brand"><div class="logo"></div><div><b>Editer Ảnh</b><small id="ver">&nbsp;</small></div></div>
   <button class="nav active" data-view="chep"><svg><use href="#i-drop"/></svg>Chép màu từ ảnh mẫu</button>
   <button class="nav" data-view="db"><svg><use href="#i-sync"/></svg>Đồng bộ từ ảnh đã chỉnh</button>
+  <button class="nav" data-view="lr"><svg><use href="#i-lr"/></svg>Dùng trong Lightroom</button>
   <button class="nav" data-view="pc"><svg><use href="#i-sliders"/></svg>Chỉnh theo phong cách</button>
   <button class="nav" data-view="hoc"><svg><use href="#i-learn"/></svg>Học phong cách</button>
   <button class="nav" data-view="ps"><svg><use href="#i-ps"/></svg>Kiểm tra Photoshop</button>
@@ -323,6 +325,8 @@
         <li>Chỉnh mỗi ảnh đó đến khi ưng (WB, tone, HSL, color grading, mask...) rồi bấm <b>Done</b>.</li>
         <li>Quay lại đây bấm <b>Đồng bộ</b>. Ảnh bạn đã chỉnh không bao giờ bị ghi đè.</li>
       </ol>
+      <p class="hint">Bạn chỉnh bằng <b>Lightroom Classic</b>? Dùng mục <button class="linkbtn" data-goto="lr">Dùng trong Lightroom</button>
+        — làm thẳng trong catalog, không qua file .xmp.</p>
     </div>
     <div class="card drop" data-zone="dbdir">
       <h3><span class="step">1</span>Thư mục ảnh RAW của job</h3>
@@ -333,6 +337,40 @@
       <span class="why" id="why-db"></span>
     </div>
     <div id="out-db"></div>
+  </section>
+
+  <!-- ===================== LIGHTROOM CLASSIC ===================== -->
+  <section class="view" id="view-lr">
+    <div class="head">
+      <h1>Dùng ngay trong Lightroom Classic</h1>
+      <p>Editer chỉnh <b>thẳng trong catalog Lightroom đang mở</b> — thấy kết quả ngay, Edit → Undo được. Không qua file .xmp,
+        không cần Bridge / Camera Raw. Bạn chỉnh tay 1 ảnh mỗi cảnh, Editer làm phần lặp lại cho cả cảnh (như Sync nhưng tự
+        cân lại nhiệt độ màu + độ sáng từng ảnh).</p>
+    </div>
+    <div class="card">
+      <h3>Plugin Editer cho Lightroom</h3>
+      <div id="lr-status" class="stats"></div>
+      <div class="row-btns"><button class="btn primary" data-act="lr-cai" id="lr-cai-btn">Cài vào Lightroom Classic</button></div>
+      <p class="hint">Cài 1 lần. Mỗi lần Editer cập nhật, plugin tự cập nhật theo (mở Editer bản mới 1 lần rồi khởi động lại Lightroom).</p>
+    </div>
+    <div class="card">
+      <h3>Cách làm</h3>
+      <ol class="steps">
+        <li>Bấm <b>Cài vào Lightroom Classic</b> ở trên, rồi <b>khởi động lại Lightroom</b>.</li>
+        <li>Trong Lightroom: mở thư mục job, chọn hết ảnh (<b>Ctrl+A</b>) → menu <b>Library → Plug-in Extras →
+          Editer: 1. Chọn ảnh mẫu mỗi cảnh</b>. Editer chia cảnh và đưa mỗi cảnh 1 ảnh vào bộ sưu tập
+          <b>"Editer – ảnh mẫu cần chỉnh"</b>.</li>
+        <li>Chỉnh từng ảnh đó trong <b>Develop</b> đến khi ưng (WB, tone, HSL, color grading, mask AI…).</li>
+        <li>Quay lại thư mục job, <b>Ctrl+A</b> → <b>Editer: 2. Đồng bộ cả cảnh theo ảnh bạn chỉnh</b>. Xong — xem ngay trong Lightroom.</li>
+      </ol>
+      <p class="hint">Ảnh bạn đã chỉnh không bị đụng tới. Không mang sang: khung cắt, phối cảnh, xoá vết, cọ tô, gradient.
+        Chỉnh thêm vài ảnh rồi chạy lại bước 2 bao nhiêu lần cũng được.</p>
+    </div>
+    <div class="card">
+      <h3>Đang dùng Lightroom mà chạy các mục khác của Editer (ghi file .xmp)?</h3>
+      <p class="sub">Lightroom <b>không tự đọc lại</b> file .xmp do chương trình khác ghi — vì vậy trông như "không thay đổi gì".
+        Trong Lightroom: chọn các ảnh → menu <b>Metadata → Read Metadata from Files</b> (Đọc siêu dữ liệu từ tệp) thì mới thấy kết quả.</p>
+    </div>
   </section>
 
   <!-- ===================== CHỈNH THEO PHONG CÁCH ===================== -->
@@ -576,6 +614,12 @@ document.addEventListener("click", async (e) => {
   else if (act === "open") API.mo(el.dataset.path);
   else if (act === "open-url") API.mo(el.dataset.url);
   else if (act === "open-data") API.mo(INFO.du_lieu);
+  else if (act === "lr-cai") {
+    const r = await API.lr_cai();
+    if (!r.ok) { toast(r.loi, 8000); return; }
+    INFO.lightroom = { ...r, da_cai: true }; renderLr();
+    toast("Đã cài plugin. Khởi động lại Lightroom Classic → Library → Plug-in Extras → Editer." + ((r.ghi_chu || []).length > 1 ? " " + r.ghi_chu[0] : ""), 9000);
+  }
   else if (act === "ps-open") psOpen(el.dataset.v, el.dataset.k);
   else if (act === "cn-check") cnCheck(false);
   else if (act === "cn-token-show") { $("#cn-token").hidden = false; $("#cn-token-in").focus(); }
@@ -663,7 +707,10 @@ function openBtns(res) {
   return `<div class="row-btns">
     ${res.thu_muc ? `<button class="btn" data-act="open" data-path="${esc(res.thu_muc)}">Mở thư mục ảnh</button>` : ""}
     ${res.csv ? `<button class="btn" data-act="open" data-path="${esc(res.csv)}">Mở bảng chi tiết (Excel)</button>` : ""}
-  </div>`;
+  </div>
+  <p class="hint">Kết quả nằm trong file .xmp cạnh ảnh RAW — Bridge / Camera Raw thấy ngay. Xem bằng <b>Lightroom Classic</b>:
+    chọn các ảnh → <b>Metadata → Read Metadata from Files</b> (Lightroom không tự đọc lại), hoặc dùng mục
+    <button class="linkbtn" data-goto="lr">Dùng trong Lightroom</button> để chỉnh thẳng trong catalog.</p>`;
 }
 function finish(view, st) {
   const out = $("#out-" + view);
@@ -883,7 +930,15 @@ async function refreshInfo() {
   keep.disabled = !pc.co; if (pc.co && !keep.dataset.touched) keep.checked = true;
   $("#o-keep-note").textContent = pc.co ? "Lấy từ phong cách bạn đã học; màu vẫn theo ảnh mẫu." : "Cần học phong cách trước (mục Học phong cách).";
   if (!INFO.windows) { $("#o-ps").checked = false; }
+  renderLr();
   check();
+}
+function renderLr() {
+  const lr = (INFO && INFO.lightroom) || {};
+  $("#lr-status").innerHTML = lr.loi ? `Lỗi: ${esc(lr.loi)}`
+    : lr.da_cai ? `Đã cài — bản <b>${esc(lr.phien_ban || "?")}</b>${lr.vua_cap_nhat ? " (vừa tự cập nhật — khởi động lại Lightroom)" : ""}<br><span class="path">${esc(lr.noi_cai)}</span>`
+    : `<b>Chưa cài.</b>${lr.co_lightroom === false ? " (Chưa thấy Lightroom Classic trên máy này — vẫn cài được, Lightroom sẽ nạp khi bạn mở.)" : ""}`;
+  $("#lr-cai-btn").textContent = lr.da_cai ? "Cài lại" : "Cài vào Lightroom Classic";
 }
 $("#o-keep").addEventListener("change", (e) => { e.target.dataset.touched = "1"; });
 async function init() {

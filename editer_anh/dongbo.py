@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -104,17 +105,32 @@ def exposure_shift(ref, tgt, b_ref: tuple[float, bool], b_tgt: tuple[float, bool
     return float(np.clip(0.5 * d_img, -1.0, 1.0)), "độ sáng chung"
 
 
-def sync_folder(folder: str | Path, log=print, workers: int = 8, use_ai: bool = True) -> dict:
-    folder = Path(folder)
-    refs, todo = split(folder)
-    log(f"Ảnh bạn đã chỉnh (làm mẫu): {len(refs)} · ảnh sẽ đồng bộ: {len(todo)}")
-    if not refs:
-        raise SystemExit("Chưa có ảnh nào bạn đã chỉnh trong thư mục này. Mở mỗi cảnh 1 ảnh trong Camera Raw, "
-                         "chỉnh đến khi ưng, bấm Done (lưu .xmp) rồi chạy lại.")
-    if not todo:
-        return {"thu_muc": str(folder), "ghi": 0, "de": 0, "so_mau": len(refs), "anh": [],
-                "thong_bao": "Mọi ảnh đều đã được bạn chỉnh — không còn ảnh nào để đồng bộ."}
-    paths = refs + todo
+def _num(v) -> float | None:
+    """Số trong thông số: chuỗi Camera Raw ("+0.35") hoặc số (Lightroom)."""
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        return float(str(v).strip())
+    except ValueError:
+        return None
+
+
+@dataclass
+class Ctx:
+    """Đã đọc + phân tích cả lô ảnh (dùng chung cho đồng bộ bằng .xmp và trong Lightroom)."""
+    paths: list
+    photos: list
+    embs: np.ndarray | None
+    scenes: list
+    cams: list
+    bright: dict
+    ref_idx: list
+
+
+def analyse(paths: list, is_ref: list[bool], log=print, workers: int = 8, use_ai: bool = True) -> Ctx:
+    """Đọc ảnh, chia cảnh (giờ chụp + AI), đo As Shot và độ sáng da trên ảnh máy chụp."""
     log(f"Đọc {len(paths)} ảnh...")
     photos = style.load_many(paths, workers, log)
     for line in raw.wb_summary(photos):
@@ -129,12 +145,9 @@ def sync_folder(folder: str | Path, log=print, workers: int = 8, use_ai: bool = 
                               for p in photos])
         seg = ai.Segmenter.get()
     scenes = style.group_scenes(photos, embs=embs)
-    ref_idx = [i for i in range(len(refs)) if not photos[i].error and photos[i].preview is not None]
-    if not ref_idx:
-        raise SystemExit("Không đọc được ảnh mẫu (ảnh bạn đã chỉnh).")
-    cams = look.as_shot_shots(photos)
-
     ok = [i for i, p in enumerate(photos) if not p.error and p.preview is not None]
+    ref_idx = [i for i in ok if is_ref[i]]
+    cams = look.as_shot_shots(photos)
     bright: dict[int, tuple[float, bool]] = {}
     if seg is not None:
         log(f"AI tìm da người để cân độ sáng ({len(ok)} ảnh)...")
@@ -147,58 +160,95 @@ def sync_folder(folder: str | Path, log=print, workers: int = 8, use_ai: bool = 
         bright[i] = brightness(up, reg)
         if seg is not None and (n % 50 == 0 or n == len(ok)):
             log(f"  đã xem {n}/{len(ok)}")
+    return Ctx(list(paths), photos, embs, scenes, cams, bright, ref_idx)
+
+
+def decide(ctx: Ctx, i: int, crs_of) -> dict:
+    """Thông số riêng cho ảnh i theo ảnh mẫu phù hợp nhất. crs_of(r) -> thông số của ảnh mẫu r."""
+    photos, cams = ctx.photos, ctx.cams
+    ph = photos[i]
+    r = _pick(i, photos, ctx.scenes, ctx.embs, ctx.ref_idx)
+    crs = crs_of(r)
+    d_ev, cach = exposure_shift(photos[r], ph, ctx.bright[r], ctx.bright[i])
+    out = {"r": r, "Exposure2012": float(np.clip((_num(crs.get("Exposure2012")) or 0.0) + d_ev, -5, 5)),
+           "cach": cach, "cung_canh": ctx.scenes[r] == ctx.scenes[i],
+           "cung_may": same_camera(photos[r], ph), "cung_ong_kinh": same_lens(photos[r], ph)}
+    t_ref = _num(crs.get("Temperature"))
+    out["as_shot"] = crs.get("WhiteBalance") == "As Shot" or not t_ref
+    if out["as_shot"]:
+        out["wb"] = "As Shot (như ảnh mẫu)"
+        return out
+    m = 1e6 / t_ref
+    tint = _num(crs.get("Tint")) or 0.0
+    if cams[r].mired is not None and cams[i].mired is not None:
+        m += _soft(cams[i].mired - cams[r].mired, 25.0)
+        tint += _soft((cams[i].tint or 0.0) - (cams[r].tint or 0.0), 10.0)
+    out.update({"WhiteBalance": "Custom", "Temperature": float(np.clip(1e6 / m, 2000, 50000)),
+                "Tint": float(np.clip(tint, -150, 150))})
+    out["wb"] = f"{out['Temperature']:.0f}K tint {out['Tint']:+.0f}"
+    return out
+
+
+def describe(ctx: Ctx, i: int, d: dict) -> str:
+    r = d["r"]
+    return (f"  {Path(ctx.photos[i].path).name:<22} <- {Path(ctx.paths[r]).name}"
+            f"{'' if d['cung_canh'] else ' (khác cảnh, giống nhất)'}{'' if d['cung_may'] else ' (khác máy)'}: "
+            f"{d['wb']}, exp {d['Exposure2012']:+.2f} ({d['cach']})")
+
+
+def sync_folder(folder: str | Path, log=print, workers: int = 8, use_ai: bool = True) -> dict:
+    folder = Path(folder)
+    refs, todo = split(folder)
+    log(f"Ảnh bạn đã chỉnh (làm mẫu): {len(refs)} · ảnh sẽ đồng bộ: {len(todo)}")
+    if not refs:
+        raise SystemExit("Chưa có ảnh nào bạn đã chỉnh trong thư mục này. Mở mỗi cảnh 1 ảnh trong Camera Raw, "
+                         "chỉnh đến khi ưng, bấm Done (lưu .xmp) rồi chạy lại.")
+    if not todo:
+        return {"thu_muc": str(folder), "ghi": 0, "de": 0, "so_mau": len(refs), "anh": [],
+                "thong_bao": "Mọi ảnh đều đã được bạn chỉnh — không còn ảnh nào để đồng bộ."}
+    paths = refs + todo
+    ctx = analyse(paths, [True] * len(refs) + [False] * len(todo), log, workers, use_ai)
+    if not ctx.ref_idx:
+        raise SystemExit("Không đọc được ảnh mẫu (ảnh bạn đã chỉnh).")
+    crs_cache: dict = {}
+
+    def crs_of(r):
+        if r not in crs_cache:
+            crs_cache[r] = xmp.read_settings(xmp.find_sidecar(paths[r]))["crs"]
+        return crs_cache[r]
 
     tpl_cache: dict = {}
-    crs_cache: dict = {}
     cnt = {"ghi": 0, "de": 0}
     how = Counter()
     rows = []
     for i in range(len(refs), len(paths)):
-        ph = photos[i]
+        ph = ctx.photos[i]
         if ph.error or ph.preview is None:
             log(f"  bỏ qua {Path(ph.path).name}: {ph.error or 'không có ảnh xem trước'}")
             continue
-        r = _pick(i, photos, scenes, embs, ref_idx)
-        ref_xmp = xmp.find_sidecar(paths[r])
-        if r not in crs_cache:
-            crs_cache[r] = xmp.read_settings(ref_xmp)["crs"]
-        crs = crs_cache[r]
-        d_ev, cach = exposure_shift(photos[r], ph, bright[r], bright[i])
-        how[cach] += 1
-        vals: dict = {"Exposure2012": float(np.clip((xmp.number(crs, "Exposure2012") or 0.0) + d_ev, -5, 5))}
-        t_ref = xmp.number(crs, "Temperature")
-        as_shot = crs.get("WhiteBalance") == "As Shot" or t_ref is None
-        if as_shot:
-            wb_txt = "As Shot (như ảnh mẫu)"
-        else:
-            m = 1e6 / t_ref
-            tint = xmp.number(crs, "Tint") or 0.0
-            if cams[r].mired is not None and cams[i].mired is not None:
-                m += _soft(cams[i].mired - cams[r].mired, 25.0)
-                tint += _soft((cams[i].tint or 0.0) - (cams[r].tint or 0.0), 10.0)
-            vals.update({"WhiteBalance": "Custom", "Temperature": float(np.clip(1e6 / m, 2000, 50000)),
-                         "Tint": float(np.clip(tint, -150, 150))})
-            wb_txt = f"{vals['Temperature']:.0f}K tint {vals['Tint']:+.0f}"
-        cam_ok, lens_ok = same_camera(photos[r], ph), same_lens(photos[r], ph)
-        key = (r, cam_ok, lens_ok)
+        d = decide(ctx, i, crs_of)
+        r = d["r"]
+        how[d["cach"]] += 1
+        vals: dict = {"Exposure2012": d["Exposure2012"]}
+        if not d["as_shot"]:
+            vals.update({k: d[k] for k in ("WhiteBalance", "Temperature", "Tint")})
+        key = (r, d["cung_may"], d["cung_ong_kinh"])
         if key not in tpl_cache:
-            tpl, skipped = xmp.sync_template(ref_xmp, same_camera=cam_ok, same_lens=lens_ok,
-                                             drop=("Temperature", "Tint") if as_shot else ())
+            tpl, skipped = xmp.sync_template(xmp.find_sidecar(paths[r]), same_camera=d["cung_may"],
+                                             same_lens=d["cung_ong_kinh"],
+                                             drop=("Temperature", "Tint") if d["as_shot"] else ())
             if skipped and not any(k[0] == r for k in tpl_cache):
                 log(f"  {Path(paths[r]).name}: không mang sang {', '.join(skipped)} — chỉ đúng vị trí trong ảnh đó")
             tpl_cache[key] = tpl
         st = xmp.write_sidecar(ph.path, xmp.build_xmp(tpl_cache[key], vals), overwrite=True)
         cnt["ghi" if st == "ghi" else "de"] += 1
-        same = scenes[r] == scenes[i]
-        rows.append({"ten": Path(ph.path).name, "mau": Path(paths[r]).name, "cung_canh": same,
-                     "wb": wb_txt, "exp": vals["Exposure2012"], "cach": cach,
-                     "khac_may": not cam_ok})
-        log(f"  {Path(ph.path).name:<22} <- {Path(paths[r]).name}{'' if same else ' (khác cảnh, giống nhất)'}"
-            f"{'' if cam_ok else ' (khác máy)'}: {wb_txt}, exp {vals['Exposure2012']:+.2f} ({cach})")
+        rows.append({"ten": Path(ph.path).name, "mau": Path(paths[r]).name, "cung_canh": d["cung_canh"],
+                     "wb": d["wb"], "exp": d["Exposure2012"], "cach": d["cach"], "khac_may": not d["cung_may"]})
+        log(describe(ctx, i, d))
     if how:
         log("Độ sáng: " + ", ".join(f"{n} ảnh theo {k}" for k, n in how.most_common()))
-    log(f"XONG: đồng bộ {cnt['ghi'] + cnt['de']} ảnh theo {len(ref_idx)} ảnh bạn đã chỉnh "
+    log(f"XONG: đồng bộ {cnt['ghi'] + cnt['de']} ảnh theo {len(ctx.ref_idx)} ảnh bạn đã chỉnh "
         f"({cnt['de']} ảnh ghi lại .xmp cũ — bản cũ giữ ở .xmp.bak, sao / nhãn màu giữ nguyên).")
-    order = sorted(range(len(paths)), key=lambda k: (photos[k].time or 0, str(paths[k])))
-    return {"thu_muc": str(folder), "ghi": cnt["ghi"], "de": cnt["de"], "so_mau": len(ref_idx), "anh": rows,
+    order = sorted(range(len(paths)), key=lambda k: (ctx.photos[k].time or 0, str(paths[k])))
+    return {"thu_muc": str(folder), "ghi": cnt["ghi"], "de": cnt["de"], "so_mau": len(ctx.ref_idx), "anh": rows,
             "tep": [str(paths[k]) for k in order]}
