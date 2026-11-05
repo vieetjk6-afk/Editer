@@ -56,9 +56,21 @@ def _load_calib() -> dict:
         return {}
 
 
+# Độ lệch hợp lý giữa As Shot tool tính và Camera Raw. Số lớn hơn = đo sai (vd 0.12.1: Lightroom trả nhiệt độ
+# CŨ của ảnh thay vì As Shot) -> bỏ, không dùng, không cộng dồn.
+CALIB_MAX = (20.0, 80.0)      # mired, tint
+
+
+def _sane(d_mired: float, d_tint: float) -> bool:
+    return abs(d_mired) <= CALIB_MAX[0] and abs(d_tint) <= CALIB_MAX[1]
+
+
 def calib_of(model: str | None) -> tuple[float, float] | None:
     c = _load_calib().get(norm(model))
-    return (float(c["mired"]), float(c["tint"])) if c else None
+    if not c:
+        return None
+    m, t = float(c["mired"]), float(c["tint"])
+    return (m, t) if _sane(m, t) else None
 
 
 def save_calib(model: str | None, d_mired: float, d_tint: float) -> None:
@@ -68,8 +80,12 @@ def save_calib(model: str | None, d_mired: float, d_tint: float) -> None:
         return
     data = _load_calib()
     old = data.get(norm(model), {"mired": 0.0, "tint": 0.0, "n": 0})
-    data[norm(model)] = {"mired": old["mired"] + d_mired, "tint": old["tint"] + d_tint, "n": old.get("n", 0) + 1,
-                         "may": model}
+    if not _sane(float(old["mired"]), float(old["tint"])):          # số cũ đo sai -> bỏ, đo lại từ đầu
+        old = {"mired": 0.0, "tint": 0.0, "n": 0}
+    m, t = old["mired"] + d_mired, old["tint"] + d_tint
+    if not _sane(m, t):
+        return                                                        # lệch vô lý -> không ghi nhớ
+    data[norm(model)] = {"mired": m, "tint": t, "n": old.get("n", 0) + 1, "may": model}
     try:
         CALIB.parent.mkdir(parents=True, exist_ok=True)
         CALIB.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")

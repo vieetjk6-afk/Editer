@@ -434,8 +434,7 @@ local function serveRender(catalog, items, req, dir, touched, notes)
   end
   local path, xerr = exportJpeg(it.photo, dir, req.co_anh or 1024)
   if not path then return { ok = false, loi = 'Lightroom không xuất được ảnh: ' .. tostring(xerr) } end
-  local now = it.photo:getDevelopSettings() or {}
-  return { ok = true, anh = path, temp = now.Temperature, tint = now.Tint }
+  return { ok = true, anh = path }
 end
 
 function M.chepMau()

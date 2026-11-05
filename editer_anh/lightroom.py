@@ -288,11 +288,13 @@ class RenderBridge:
         def make(rep_photos):
             def render(i, lk, shot):
                 vals, crv, _ = cli._compose_jpg(None, rep_photos[i], lk, shot, True)
-                img, resp = self.render(rep_photos[i].path, to_lr(vals, crv), size)
-                if shot.mired is None and resp.get("temp"):      # As Shot -> Lightroom cho biết số thật
-                    render.as_shot[i] = (float(resp["temp"]), float(resp.get("tint") or 0.0))
+                img, _ = self.render(rep_photos[i].path, to_lr(vals, crv), size)
+                # KHÔNG lấy As Shot từ Lightroom: sau khi đặt "As Shot", getDevelopSettings vẫn trả nhiệt độ CŨ
+                # của ảnh (lỗi thật ở 0.12.1: -37 mired) -> dùng As Shot tool tính (đã khớp Camera Raw).
                 return img
             render.as_shot = {}
+            render.probe_as_shot = True       # đo As Shot thật bằng ảnh dựng thêm (look.probe_as_shot)
+            render.ten = "Lightroom"
             return render
         return make
 

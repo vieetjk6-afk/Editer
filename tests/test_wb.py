@@ -124,7 +124,17 @@ def test_calibration_memory(tmp: Path):
     assert wb.calibrated("NIKON Z5_2", 5260, -29, "libraw") == (5260, -29)
     wb.save_calib("NIKON Z5_2", 0.0, -1.0)                      # lần đo sau: cộng dồn phần còn lệch
     assert abs(wb.calib_of("NIKON Z5_2")[1] - 49.0) < 1e-6
-    print("[cân bằng trắng] nhớ độ lệch so với Camera Raw: OK")
+    # Lỗi thật 0.12.1: Lightroom trả nhiệt độ CŨ của ảnh -> "lệch -37 mired" -> không được ghi nhớ / dùng
+    wb.save_calib("NIKON Z5_2", -37.2, 22.6)
+    m, t = wb.calib_of("NIKON Z5_2")
+    assert abs(m - (1e6 / 5450 - 1e6 / 5260)) < 1e-6 and abs(t - 49.0) < 1e-6, (m, t)
+    import json
+    wb.CALIB.write_text(json.dumps({"NIKONZ52": {"mired": -37.2, "tint": 22.6, "n": 1}}), encoding="utf-8")
+    assert wb.calib_of("NIKON Z5_2") is None, "số đã lỡ ghi sai -> bỏ, không dùng"
+    assert wb.calibrated("NIKON Z5_2", 5260, -29, "hồ sơ màu Adobe") == (5260, -29)
+    wb.save_calib("NIKON Z5_2", -6.6, 50.0)                     # đo lại đúng -> bắt đầu lại từ số đúng
+    assert abs(wb.calib_of("NIKON Z5_2")[0] + 6.6) < 1e-6
+    print("[cân bằng trắng] nhớ độ lệch so với Camera Raw (bỏ số đo sai): OK")
 
 
 if __name__ == "__main__":

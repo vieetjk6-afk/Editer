@@ -417,6 +417,41 @@ def test_transfer():
     print("[chuyển sang cả lô] OK")
 
 
+def test_skin_guard():
+    """Lỗi thật (0.12.1, Lightroom): da ảnh gốc ΔE 9.2, kết quả da ΔE 15.0 (mặt xám) dù trắng / cây tốt hơn
+    -> không được nhận. Da chỉ được lệch thêm tối đa 1 ΔE hoặc 10%."""
+    base = {"da": 9.2, "trắng": 10.7, "cây": 18.8}
+    assert not look.skin_ok({"da": 15.0, "trắng": 1.4, "cây": 8.0}, base)
+    assert look.skin_ok({"da": 10.0, "trắng": 1.4}, base) and look.skin_ok({"da": 3.0}, base)
+    assert look.skin_ok({"trắng": 1.0}, base) and look.skin_ok({"da": 30.0}, None)
+    print("[da] không nhận kết quả làm da tệ hơn ảnh gốc: OK")
+
+
+def test_probe_as_shot():
+    """Lightroom không cho biết As Shot thật (số đọc về là nhiệt độ cũ của ảnh) -> đo bằng ảnh dựng thêm.
+    Máy giả: As Shot tool tính lệch As Shot thật 12 mired / tint -30 (như Z5 II lệch Camera Raw ~50 tint);
+    bộ dựng giả có độ nhạy WB khác mô phỏng (wb_gain 1.4) -> vẫn phải đo ra đúng As Shot thật."""
+    true = Shot(1e6 / 5450, 21.0, 0.0)
+    real = look.Consts(wb_gain=1.4)
+    imgs, cams = [], []
+    for seed, (dm, dt) in ((3, (12.0, -30.0)), (7, (6.6, -50.0))):     # 6.6 / -50: số đo thật Z5 II
+        img, _ = scene(seed)
+        imgs.append(img)
+        cams.append(Shot(true.mired + dm, true.tint + dt, 0.0))
+    calls = []
+
+    def lr_render(j, lk, sh):
+        calls.append(sh)
+        return render(imgs[j], lk, sh if sh.mired is not None else true, real, base_shot=true)
+    base = [lr_render(j, Look(), Shot(None, None, 0.0)) for j in range(2)]
+    got = look.probe_as_shot(lr_render, [0, 1], base, cams, print)
+    for j in (0, 1):
+        t, ti = got[j]
+        assert abs(1e6 / t - true.mired) < 2.0 and abs(ti - true.tint) < 3.0, (j, 1e6 / t, ti, true)
+    assert len(calls) <= 2 + 2 * 3, "tối đa 3 lần dựng thêm mỗi ảnh"
+    print(f"[As Shot] đo trên ảnh dựng: {got[0][0]:.0f}K tint {got[0][1]:+.1f} (thật 5450K +21): OK")
+
+
 if __name__ == "__main__":
     import tempfile
     test_self_match()
@@ -434,4 +469,6 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as d:
         test_xmp_roundtrip(Path(d))
     test_transfer()
+    test_skin_guard()
+    test_probe_as_shot()
     print("LOOK OK")

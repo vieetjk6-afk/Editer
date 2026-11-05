@@ -897,7 +897,63 @@ def as_shot_shots(photos) -> list[Shot]:
     return out
 
 
-def _calibrate_as_shot(photos, reps: list[int], cams: list[Shot], acr: dict, log) -> list[Shot]:
+def _wb_shift_px(a: np.ndarray, b: np.ndarray) -> np.ndarray | None:
+    """Lệch màu tổng thể (trung vị log R/G, log B/G) giữa 2 lần dựng CÙNG một tấm (sRGB 0..1, N x 3)."""
+    la, lb = _to_lin(np.clip(a, 0, 1)), _to_lin(np.clip(b, 0, 1))
+    ok = (la.max(1) < 0.9) & (lb.max(1) < 0.9) & (la.min(1) > 0.004) & (lb.min(1) > 0.004)
+    if ok.sum() < 200:
+        return None
+    d = np.median(np.log(lb[ok]) - np.log(la[ok]), axis=0)
+    return np.array([d[0] - d[1], d[2] - d[1]])
+
+
+def probe_as_shot(render, reps: list[int], base_imgs: list, cams: list[Shot], log, rounds: int = 3,
+                  k: Consts = DEFAULT) -> dict:
+    """Bộ dựng KHÔNG cho biết As Shot thật (Lightroom: số nhiệt độ đọc về là số cũ). Đo bằng ảnh: dựng thêm ảnh
+    ở WB Custom = số đang đoán, so màu với ảnh As Shot -> lệch bao nhiêu thì As Shot thật lệch bấy nhiêu.
+    Độ nhạy WB ban đầu lấy từ mô phỏng, sau mỗi lần dựng sửa theo phản ứng THẬT (Broyden) -> tối đa 3 lần
+    dựng thêm mỗi ảnh, sai ~1-2 mired / tint. -> {j: (K, tint)}"""
+    out = {}
+    for j, i in enumerate(reps):
+        c = cams[i]
+        if c.mired is None:
+            continue
+        base = base_imgs[j][::4, ::4].reshape(-1, 3) / 255.0
+        c0 = Shot(c.mired, c.tint or 0.0, 0.0)
+        cols = []
+        for dm, dt in ((10.0, 0.0), (0.0, 10.0)):
+            sim = simulate(base, Look(), c0, Look(), Shot(c0.mired + dm, c0.tint + dt, 0.0), k)
+            col = _wb_shift_px(base, sim)
+            cols.append(None if col is None else col / 10.0)
+        if any(col is None for col in cols):
+            continue
+        S = np.column_stack(cols)
+        if abs(np.linalg.det(S)) < 1e-10:
+            continue
+        guess, prev = np.array([c0.mired, c0.tint]), None
+        for _ in range(rounds):
+            img = render(j, Look(), Shot(float(guess[0]), float(guess[1]), 0.0))
+            obs = _wb_shift_px(base, img[::4, ::4].reshape(-1, 3) / 255.0)
+            if obs is None:
+                break
+            if prev is not None:                            # độ nhạy thật theo hướng vừa đi
+                dg, do = guess - prev[0], obs - prev[1]
+                if float(dg @ dg) > 1e-6:
+                    S = S + np.outer(do - S @ dg, dg) / float(dg @ dg)
+            prev = (guess.copy(), obs)
+            delta = np.linalg.solve(S, obs)                 # ~ (số đang đoán - As Shot thật)
+            guess = guess - delta
+            if np.all(np.abs(delta) < 1.0):
+                break
+        if abs(guess[0] - c0.mired) > 40 or abs(guess[1] - c0.tint) > 80 or not (20 < guess[0] < 500):
+            log(f"  đo As Shot ảnh đại diện {j + 1}: kết quả vô lý -> bỏ qua")
+            continue
+        out[j] = (1e6 / float(guess[0]), float(guess[1]))
+    return out
+
+
+def _calibrate_as_shot(photos, reps: list[int], cams: list[Shot], acr: dict, log,
+                       ten: str = "Camera Raw") -> list[Shot]:
     """Camera Raw cho biết As Shot THẬT của ảnh đại diện (đọc từ ảnh vừa dựng): dùng đúng số đó;
     As Shot tool tự tính cho các ảnh khác cùng đời máy được bù theo độ lệch trung vị."""
     if not acr:
@@ -910,6 +966,9 @@ def _calibrate_as_shot(photos, reps: list[int], cams: list[Shot], acr: dict, log
         if not (1500 < t < 50000):
             continue
         c = cams[i]
+        if c.mired is not None and abs(1e6 / t - c.mired) > 25:      # vô lý -> đo sai (vd số nhiệt độ cũ)
+            log(f"  As Shot báo về ({t:.0f}K) lệch quá xa số tool tính — bỏ qua, dùng số tool tính")
+            continue
         if c.mired is not None:
             offs.setdefault(photos[i].model, []).append((1e6 / t - c.mired, tint - (c.tint or 0.0)))
         cams[i] = Shot(1e6 / t, float(tint), 0.0)
@@ -917,7 +976,7 @@ def _calibrate_as_shot(photos, reps: list[int], cams: list[Shot], acr: dict, log
     for model, ds in offs.items():
         dm = float(np.median([d[0] for d in ds]))
         dt = float(np.median([d[1] for d in ds]))
-        log(f"  As Shot theo Camera Raw ({model}): tool tính lệch {dm:+.1f} mired / tint {dt:+.1f}"
+        log(f"  As Shot theo {ten} ({model}): tool tính lệch {dm:+.1f} mired / tint {dt:+.1f}"
             + (" -> đã bù cho cả lô và ghi nhớ cho lần sau" if abs(dm) > 1 or abs(dt) > 1 else " (khớp)"))
         srcs = {p.wb_src for p in photos if p.model == model}
         if (abs(dm) > 1 or abs(dt) > 1) and srcs and "libraw" not in srcs:
@@ -1014,6 +1073,13 @@ def learn_gains(reps: list[Rep], keys, ref, ref_sel, ident, gidx, tmpl, tried, k
     return r.x
 
 
+def skin_ok(rp: dict, base_rp: dict | None) -> bool:
+    """Da KHÔNG được tệ hơn ảnh gốc (ảnh cưới: da quan trọng nhất). Cho lệch thêm tối đa 1 ΔE hoặc 10%."""
+    if not base_rp or "da" not in rp or "da" not in base_rp:
+        return True
+    return rp["da"] <= base_rp["da"] + max(1.0, 0.1 * base_rp["da"])
+
+
 def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Look, shots0: list[Shot],
            priors: list[Shot], iters: int = 3, log=print, k: Consts = DEFAULT, tol: float = 0.8,
            reg_schedule=(0.6, 0.3, 0.15), probe_local: bool = True, bases0: list | None = None,
@@ -1040,7 +1106,7 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
     tmpl = [replace(s) for s in shots0]
     x_try = _pack(look0, shots0)
     bases, history, keys = list(bases0 or []), [], None
-    best, mu = None, 0.6
+    best, mu, best_ok = None, 0.6, None
     gidx, gains, seen = _group_index(tmpl), np.ones(len(GROUPS)), []
     keeps = [r.keep for r in reps]
     use_local, probed = (False, False), False
@@ -1082,6 +1148,11 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
         else:
             mu *= 4.0                                       # tệ -> siết lại, bước ngắn hơn
             mark = "  (tệ hơn -> bỏ, thử bước ngắn hơn)"
+        if skin_ok(rp, base_rp):
+            if best_ok is None or score < best_ok["score"]:
+                best_ok = {"x": x_try.copy(), "score": score, "report": rp, "imgs": imgs}
+        elif not mark:
+            mark = f"  (da tệ hơn ảnh gốc ΔE {base_rp['da']:.1f} -> không dùng kết quả này)"
         log(f"    lượt {it + 1}: {fmt_report(rp)}{mark}")
         if it == iters or best["score"] < tol:
             break
@@ -1104,6 +1175,13 @@ def refine(reps: list[Rep], render, segment, ref: dict, ref_sel: Sel, look0: Loo
         lk_p, sh_p = solve(reps, ref, ref_sel, lk_b, sh_b, priors, k, offsets=offs, reg=reg,
                            prox=(best["x"], mu), gmap=(ident, G), use_local=use_local)
         x_try = _pack(lk_p, sh_p)
+    if base_rp is not None and (best_ok is None or best_ok["score"] > 0.95 * base_score):
+        if best_ok is None:
+            log("    Lượt nào cũng làm DA tệ hơn ảnh gốc -> giữ ảnh như gốc (As Shot, không đổi màu).")
+        best = {**best, "score": 1e9}                       # -> nhánh giữ gốc bên dưới
+    elif best_ok is not None:
+        best = {**best, "x": best_ok["x"], "score": best_ok["score"], "report": best_ok["report"],
+                "imgs": best_ok["imgs"]}
     lk_b, sh_b = _unpack(best["x"], tmpl)
     if base_score is not None and best["score"] > 0.95 * base_score:
         log("    Không tìm được thông số làm ảnh giống mẫu hơn ẢNH GỐC -> giữ ảnh như gốc (As Shot, không đổi màu).")
@@ -1315,9 +1393,14 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
     if render is not None:
         # Điểm xuất phát THẬT: Camera Raw dựng ảnh gốc (As Shot, chưa chỉnh). Ảnh xem trước nhúng
         # trong RAW là JPEG của máy (màu khác Camera Raw) -> không dùng làm gốc khi đã có Photoshop.
-        log("Dựng ảnh gốc bằng Camera Raw (As Shot, chưa chỉnh) để làm điểm xuất phát...")
+        ten = getattr(render, "ten", "Camera Raw")
+        log(f"Dựng ảnh gốc bằng {ten} (As Shot, chưa chỉnh) để làm điểm xuất phát...")
         base_imgs = [render(j, Look(), Shot(None, None, 0.0)) for j in range(len(reps))]
-        cams = _calibrate_as_shot(photos, reps, cams, getattr(render, "as_shot", None) or {}, log)
+        acr, label = getattr(render, "as_shot", None) or {}, ten
+        if not acr and getattr(render, "probe_as_shot", False):
+            log(f"Đo nhiệt độ màu gốc (As Shot) thật trên ảnh {ten} dựng ({ten} không cho biết số này)...")
+            acr, label = probe_as_shot(render, reps, base_imgs, cams, log), f"ảnh {ten} dựng"
+        cams = _calibrate_as_shot(photos, reps, cams, acr, log, ten=label)
     rep_objs, bases0, rep_refs = [], [], []
     for j, i in enumerate(reps):
         if base_imgs is not None:
@@ -1378,7 +1461,7 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
         preds.append((rp_sim, len(g)))
         log(f"  trên mô phỏng: {fmt_report(rp_sim)}")
         if render is not None:
-            log(f"Kiểm tra bằng Camera Raw thật ({len(g)} ảnh x tối đa {iters + 1} lượt):")
+            log(f"Kiểm tra bằng {getattr(render, 'ten', 'Camera Raw')} thật ({len(g)} ảnh x tối đa {iters + 1} lượt):")
             best, hist, used = refine(sub, (lambda ii, lk, sh, g=g: render(g[ii], lk, sh)), segment, ref.stats,
                                       ref.sel, lk_g, sh_g, pr_g, iters=iters, log=log,
                                       bases0=[bases0[j] for j in g], base_imgs=[base_imgs[j] for j in g])

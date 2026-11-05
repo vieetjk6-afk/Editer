@@ -11,6 +11,21 @@ BẠN XEM ẢNH BẰNG LIGHTROOM CLASSIC?  (lý do thường gặp của "không
  lưu thông số). Muốn thấy: trong Lightroom chọn các ảnh -> Metadata -> Read Metadata from Files (Đọc siêu
  dữ liệu từ tệp). Cách tiện hơn: dùng plugin bên dưới, Editer chỉnh thẳng trong catalog.
 
+BẢN 0.12.2 — SỬA MÀU SAI KHI CHÉP MÀU TRONG LIGHTROOM (mặt xám, màu lệch nhiều)
+ Nguyên nhân (theo nhật ký của bạn):
+ - Lightroom không cho plugin biết nhiệt độ màu gốc (As Shot) thật: sau khi đặt "As Shot", số đọc về vẫn là
+   nhiệt độ CŨ của ảnh (6540K của lần chạy Editer trước). Tool tưởng As Shot lệch 37 mired -> mọi ảnh lệch màu,
+   rồi bù bằng HSL / mask da -> mặt xám. Số sai đó còn bị ghi nhớ (wb-calib.json).
+ - Kết quả làm DA tệ hơn ảnh gốc (da ΔE 9.2 -> 15.0) vẫn được nhận vì trắng / cây khớp hơn.
+ Đã sửa:
+ - Không dùng số As Shot Lightroom trả về. Tool tự ĐO As Shot thật: dựng thêm 2-3 ảnh thử ở nhiệt độ màu biết
+   trước, so màu với ảnh As Shot (thử trên máy giả lập lệch như Z5 II: đo ra 5490K +21 khi thật là 5450K +21).
+ - Bỏ số ghi nhớ sai (lệch > 20 mired / 80 tint không bao giờ dùng / ghi).
+ - Không bao giờ nhận kết quả làm da tệ hơn ảnh gốc (cho phép thêm tối đa 1 ΔE hoặc 10%); lượt nào cũng làm da
+   tệ hơn thì giữ ảnh gốc.
+ Ảnh đã bị chép màu sai: trong Lightroom chọn các ảnh đó -> Edit -> Undo "Editer: chép màu từ ảnh mẫu" (hoặc
+ khung History, bấm bước ngay trước "Editer: chép màu"), rồi chạy lại với bản 0.12.2.
+
 BẢN 0.12.1 — sửa lỗi plugin Lightroom "attempt to call field 'rename' (a nil value)" khi chép màu (Lightroom
  không có hàm đổi tên file của Lua — giờ dùng hàm của Lightroom). Nếu bạn đã gặp lỗi này: ảnh đại diện có thể
  còn thông số "Editer: thử màu" — trong Develop, khung History bấm vào bước ngay TRƯỚC "Editer: thử màu" (hoặc
