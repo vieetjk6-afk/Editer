@@ -11,6 +11,18 @@ BẠN XEM ẢNH BẰNG LIGHTROOM CLASSIC?  (lý do thường gặp của "không
  lưu thông số). Muốn thấy: trong Lightroom chọn các ảnh -> Metadata -> Read Metadata from Files (Đọc siêu
  dữ liệu từ tệp). Cách tiện hơn: dùng plugin bên dưới, Editer chỉnh thẳng trong catalog.
 
+MỚI Ở BẢN 0.13 — CHÉP MÀU KHỚP CẢ ÁO, HOA, ĐỒ TRANG TRÍ (theo ảnh mẫu K.Studio bạn gửi)
+ Đo trên ảnh mẫu và kết quả bản 0.12.2: áo dài mẫu đỏ tươi (độ sáng L 41, độ rực C 52, tông 27°), kết quả
+ áo đỏ đô tối (L 17-26, C 34-41, 16-20°); hoa hồng / tím chói, sàn xanh két — vì tool chỉ đo da, trắng,
+ trời, cây; các màu khác trôi tự do, còn áo bị khoá "giữ như gốc".
+ - ÁO: ảnh mẫu cũng có áo cùng tông (áo dài đỏ - áo dài đỏ) -> áo theo màu áo mẫu. Khác tông (mẫu váy
+   trắng, bạn áo dài đỏ) -> vẫn giữ màu áo gốc như trước.
+ - MÀU KHÁC (hoa, đồ trang trí, sàn, rèm màu) đo theo 8 dải màu như bảng HSL của Lightroom: dải có ở cả
+   ảnh mẫu và ảnh của bạn -> khớp theo mẫu; dải ảnh mẫu không có -> giữ màu gốc (không bị nhuộm / rực lên).
+ - Kết quả có thêm các ô: "Màu áo (theo áo mẫu)", "Màu khác", "Màu mẫu không có (giữ gốc)".
+ Thử trên ảnh giả lập giống ca của bạn: áo lệch áo mẫu ΔE 19 -> 0,9; hoa giữ gần màu gốc (ΔE 2,4); da, trắng
+ vẫn khớp.
+
 BẢN 0.12.2 — SỬA MÀU SAI KHI CHÉP MÀU TRONG LIGHTROOM (mặt xám, màu lệch nhiều)
  Nguyên nhân (theo nhật ký của bạn):
  - Lightroom không cho plugin biết nhiệt độ màu gốc (As Shot) thật: sau khi đặt "As Shot", số đọc về vẫn là

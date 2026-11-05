@@ -417,6 +417,36 @@ def test_transfer():
     print("[chuyển sang cả lô] OK")
 
 
+def test_match_ref_dress_keep_flowers():
+    """Lỗi thật (0.12.2, Lightroom): ảnh mẫu K.Studio áo dài ĐỎ TƯƠI (L 41, C 52, tông 27°), không có hoa
+    rực; kết quả: áo đỏ đô tối (L 17-26, C 34-41, 16-20°), hoa hồng/tím chói, sàn xanh két.
+    Giờ: áo cùng tông với áo mẫu -> theo màu áo mẫu; màu ảnh mẫu không có (hoa tím/hồng) -> giữ màu gốc."""
+    ref_img, rreg = scene(21, red_dress=True)                      # áo dài đỏ tươi (40, 55, 30)
+    ref_img = render(ref_img, Look(sat=np.array([0, 10, 0, -30, 0, 0, 0, 0.0])), Shot(1e6 / 5300, 0, 0.2))
+    _, _, ref_sel, ref = stats_of(ref_img, rreg, ref=True)
+    assert "clothes" in ref, "ảnh mẫu phải nhận ra áo đỏ"
+    target, reg = scene(22, red_dress=True, flowers=True)
+    lab = color.srgb_to_lab(target.reshape(-1, 3) / 255.0).reshape(target.shape)
+    dress = (reg == CLOTHES) & (lab[..., 1] > 30)
+    lab[dress] = (22, 36, 11)                                      # áo đỏ đô tối như ảnh của bạn
+    target = (np.clip(color.lab_to_srgb(lab.reshape(-1, 3)), 0, 1).reshape(target.shape) * 255 + 0.5).astype(np.uint8)
+    s, idx, sel, m0 = stats_of(target, reg)
+    keep = look.make_keep(m0, ref)
+    assert "clothes" not in keep, "ảnh mẫu cũng áo đỏ -> phải theo màu áo mẫu, không giữ áo đô"
+    kept = [k for k in keep if k.startswith("band")]
+    assert kept, "hoa tím / hồng (ảnh mẫu không có) -> phải giữ màu gốc"
+    rep_ = look.Rep(s.px, sel, Look(), AS_SHOT, s.reg, keep or None)
+    lk, shots = look.solve([rep_], ref, ref_sel, Look(), [AS_SHOT], [AS_SHOT], use_local=(True, True))
+    out = render(target, lk, shots[0], reg=reg)
+    m = look.measure(look.sample_at(out, idx, s).px, sel)
+    rp = look.report([m], ref, [keep])
+    d0 = float(color.delta_e2000(m0["clothes"], ref["clothes"]))
+    print(f"[áo theo mẫu, giữ hoa] {look.fmt_report(rp)} | áo trước khi chép lệch mẫu ΔE {d0:.1f}")
+    assert rp["áo theo mẫu"] < 0.5 * d0, "áo phải về gần màu áo mẫu (đỏ tươi)"
+    assert rp["giữ màu"] < 4.0, "hoa không được bị nhuộm / rực lên"
+    assert rp["da"] < 3.0 and rp["trắng"] < 2.5
+
+
 def test_skin_guard():
     """Lỗi thật (0.12.1, Lightroom): da ảnh gốc ΔE 9.2, kết quả da ΔE 15.0 (mặt xám) dù trắng / cây tốt hơn
     -> không được nhận. Da chỉ được lệch thêm tối đa 1 ΔE hoặc 10%."""
@@ -471,4 +501,5 @@ if __name__ == "__main__":
     test_transfer()
     test_skin_guard()
     test_probe_as_shot()
+    test_match_ref_dress_keep_flowers()
     print("LOOK OK")

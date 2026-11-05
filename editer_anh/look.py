@@ -363,13 +363,20 @@ class Sel:
     clothes: np.ndarray | None = None
     pix: np.ndarray | None = None       # điểm khớp TỪNG ĐIỂM ẢNH (ảnh mẫu = bản đã chỉnh của chính ảnh này)
     frac: dict = field(default_factory=dict)
+    bands: dict = field(default_factory=dict)   # dải màu HSL (0..7) -> điểm của "màu khác": hoa, đồ trang trí, sàn...
 
     def found(self) -> list[str]:
-        names = {"skin": "da", "neutral": "trắng/trung tính", "sky": "trời", "plant": "cây", "clothes": "áo (giữ màu)"}
-        return [vi for k, vi in names.items() if getattr(self, k) is not None]
+        names = {"skin": "da", "neutral": "trắng/trung tính", "sky": "trời", "plant": "cây", "clothes": "áo"}
+        out = [vi for k, vi in names.items() if getattr(self, k) is not None]
+        if self.bands:
+            out.append("màu khác: " + "/".join(BANDS_VI[k] for k in sorted(self.bands)))
+        return out
 
 
 MIN_AREA = 0.03   # trời / cây phải chiếm >= 3% ảnh mới đem ra khớp (vùng nhỏ dễ nhận nhầm)
+BAND_MIN = 0.02   # một dải màu phải chiếm >= 2% ảnh mới tính
+BAND_SET = (OTHER, FLOWER, WATER)   # "màu khác": không phải da, áo, tóc, người, trời, cây (đã có mục tiêu riêng)
+BANDS_VI = ["đỏ", "cam", "vàng", "xanh lá", "xanh ngọc", "xanh dương", "tím", "hồng tím"]
 
 
 def _ok(idx: np.ndarray, n: int = 50) -> np.ndarray | None:
@@ -446,9 +453,22 @@ def select(s: Sample, ref: bool = False, loose: bool = False) -> Sel:
     gs = np.flatnonzero(g & valid & np.isin(reg, NEUTRAL_SET) & (L < 40) & (C <= 8))
     if len(gs) >= max(50, int(0.015 * len(s.glob))):
         sel.shadow = gs[L[gs] <= np.percentile(L[gs], 50)]
-    # ÁO có màu (đỏ, hồng...): giữ như ảnh gốc
+    # ÁO có màu (đỏ, hồng...): giữ như ảnh gốc — trừ khi ảnh mẫu cũng có áo cùng tông (xem copy_color)
     if sel.frac["clothes"] >= 0.02:
         sel.clothes = _ok(np.flatnonzero((reg == CLOTHES) & valid & (Cc > 15)), 80)
+    # MÀU KHÁC (hoa, đồ trang trí, sàn, rèm màu...) gom theo 8 dải màu HSL của Camera Raw / Lightroom.
+    # Dải có ở CẢ ảnh mẫu lẫn ảnh RAW -> khớp theo ảnh mẫu; chỉ ảnh RAW có -> giữ màu gốc (không để hoa, sàn...
+    # bị nhuộm / rực lên theo các thanh trượt chung — lỗi thật: sàn xanh két, hoa hồng tím chói).
+    obj = g & valid & np.isin(reg, BAND_SET) & (Cc > 15) & (L > 12) & (L < 95)
+    if obj.sum() >= 40:
+        hsv_h = color.rgb_to_hsv(np.clip(s.px, 0, 1))[:, 0]
+        dist = np.abs((CENTERS[None, :] - hsv_h[:, None] + 180) % 360 - 180)
+        band, near = np.argmin(dist, axis=1), dist.min(axis=1) <= 20.0     # chỉ điểm gần tâm dải
+        need = max(40, int(BAND_MIN * max(1, len(s.glob))))
+        for k in range(8):
+            idx = np.flatnonzero(obj & near & (band == k))
+            if len(idx) >= need:
+                sel.bands[k] = idx
     return sel
 
 
@@ -468,6 +488,8 @@ def measure(px: np.ndarray, sel: Sel) -> dict:
             m[name] = lab[idx].mean(axis=0)
     if sel.shadow is not None:
         m["shadow"] = lab[sel.shadow, 1:].mean(axis=0)
+    for k, idx in sel.bands.items():
+        m[f"band{k}"] = lab[idx].mean(axis=0)
     if sel.pix is not None:
         m["pix"] = lab[sel.pix]
     return m
@@ -480,7 +502,12 @@ _W = {"tone": np.array([0.3, 0.0, 0.0]), "white_L": np.array([0.25]),
       "sky": np.array([1.2, 1.5, 1.5]), "plant": np.array([1.0, 1.5, 1.5]),
       "shadow": np.array([0.6, 0.6]), "clothes": np.array([1.0, 2.0, 2.0]),
       "pix": np.array([0.35, 0.5, 0.5])}   # mỗi điểm ảnh (nhiều điểm -> tổng lớn: khớp cùng khung là chính xác nhất)
-KEEP_KEYS = ("clothes",)   # số đo phải GIỮ như ảnh gốc (không khớp theo ảnh mẫu)
+# Màu khác theo dải: khớp theo mẫu NHẸ TAY (nội dung khác nhau, điểm sát ranh giới 2 dải có thể đổi dải khi
+# chỉnh màu -> không bao giờ khớp hoàn hảo); giữ màu gốc thì MẠNH hơn (so đúng các điểm đó với chính nó).
+for _k in range(8):
+    _W[f"band{_k}"] = np.array([0.3, 0.5, 0.5])
+_W_BAND_KEEP = np.array([0.5, 0.8, 0.8])
+KEEP_KEYS = ("clothes",)   # số đo GIỮ như ảnh gốc khi ảnh mẫu không có cùng thứ (áo khác tông...)
 
 
 WHITE_MIN = 72.0     # "trắng" của ảnh mẫu tối hơn mức này = phông xám / trong bóng -> không dùng làm điểm trắng
@@ -505,12 +532,18 @@ def diff(m: dict, ref: dict, sel: Sel, ref_sel: Sel, keep: dict | None = None) -
     """Chênh lệch có trọng số: số đo tông màu so với ảnh mẫu; màu áo so với chính ảnh gốc."""
     parts = []
     for key in sorted(m):
-        target = (keep or {}).get(key) if key in KEEP_KEYS else ref.get(key)
+        w = _W[key]
+        if keep and key in keep:      # giữ như ảnh gốc
+            target = keep[key]
+            if key.startswith("band"):
+                w = _W_BAND_KEEP
+        else:                         # khớp theo ảnh mẫu (áo: chỉ khi copy_color đã cho phép — áo cùng tông)
+            target = ref.get(key)
         if target is None:
             continue
         if key == "white_L" and float(np.ravel(target)[0]) < WHITE_MIN:
             continue          # ảnh mẫu không có đồ trắng thật sáng (rèm xám tối...) -> không ép
-        parts.append(np.ravel(_W[key] * (m[key] - target)))
+        parts.append(np.ravel(w * (m[key] - target)))
     return np.concatenate(parts) if parts else np.zeros(0)
 
 
@@ -538,11 +571,23 @@ def report(stats: list[dict], ref: dict, keeps: list | None = None, refs: list |
             d.append(abs(float(m["white_L"][0] - ref["white_L"][0])))
         v.append(np.mean(d))
     out["sáng tối"] = float(np.mean(v))
-    if keeps:
-        v = [float(color.delta_e2000(m["clothes"], kp["clothes"])) for m, kp in zip(stats, keeps)
-             if "clothes" in m and kp and "clothes" in kp]
-        if v:
-            out["áo"] = float(np.mean(v))
+    kps = list(keeps) if keeps else [None] * len(stats)
+    v = [float(color.delta_e2000(m["clothes"], kp["clothes"])) for m, kp in zip(stats, kps)
+         if "clothes" in m and kp and "clothes" in kp]
+    if v:
+        out["áo"] = float(np.mean(v))
+    v = [float(color.delta_e2000(m["clothes"], ref["clothes"])) for m, kp in zip(stats, kps)
+         if "clothes" in m and "clothes" in ref and not (kp and "clothes" in kp)]
+    if v:
+        out["áo theo mẫu"] = float(np.mean(v))
+    v = [float(color.delta_e2000(m[k], ref[k])) for m, kp in zip(stats, kps) for k in m
+         if k.startswith("band") and k in ref and not (kp and k in kp)]
+    if v:
+        out["màu khác"] = float(np.mean(v))
+    v = [float(color.delta_e2000(m[k], kp[k])) for m, kp in zip(stats, kps) if kp for k in m
+         if k.startswith("band") and k in kp]
+    if v:
+        out["giữ màu"] = float(np.mean(v))
     v = [float(np.mean(color.delta_e2000(m["pix"], ref["pix"]))) for m in stats
          if "pix" in m and "pix" in ref and len(m["pix"]) == len(ref["pix"])]
     if v:
@@ -558,6 +603,12 @@ def fmt_report(r: dict) -> str:
     parts.append(f"điểm đen/trắng ΔL {r['sáng tối']:.1f}")
     if "áo" in r:
         parts.append(f"màu áo lệch gốc ΔE {r['áo']:.1f}")
+    if "áo theo mẫu" in r:
+        parts.append(f"áo (theo mẫu) ΔE {r['áo theo mẫu']:.1f}")
+    if "màu khác" in r:
+        parts.append(f"màu khác ΔE {r['màu khác']:.1f}")
+    if "giữ màu" in r:
+        parts.append(f"giữ màu gốc ΔE {r['giữ màu']:.1f}")
     if "điểm ảnh" in r:
         parts.append(f"từng điểm ảnh ΔE {r['điểm ảnh']:.1f}")
     return ", ".join(parts)
@@ -657,6 +708,19 @@ def _band_of(lab) -> int:
     return int(np.argmin(np.abs((CENTERS - h + 180) % 360 - 180)))
 
 
+def make_keep(m0: dict, T: dict) -> dict:
+    """Số đo phải GIỮ như ảnh gốc (thay vì khớp theo ảnh mẫu T):
+    - áo có màu: giữ — TRỪ KHI ảnh mẫu cũng có áo cùng tông (áo dài đỏ - áo dài đỏ: theo màu áo mẫu);
+    - dải màu chỉ ảnh RAW có (hoa tím, sàn xanh... mà ảnh mẫu không có): giữ màu gốc."""
+    keep = {key: m0[key] for key in KEEP_KEYS if key in m0}
+    if "clothes" in keep and "clothes" in T and _band_of(T["clothes"]) == _band_of(keep["clothes"]):
+        del keep["clothes"]
+    for kb in [key for key in m0 if key.startswith("band")]:
+        if kb not in T:
+            keep[kb] = m0[kb]
+    return keep
+
+
 def bands_ok(reps: list[Rep], ref: dict) -> np.ndarray:
     """Dải màu HSL được phép chỉnh = dải có BẰNG CHỨNG ở cả ảnh mẫu lẫn ảnh RAW:
     da -> đỏ/cam/vàng; cây -> vàng/xanh lá/xanh ngọc; trời -> xanh ngọc/xanh dương;
@@ -672,6 +736,12 @@ def bands_ok(reps: list[Rep], ref: dict) -> np.ndarray:
             ok[[4, 5]] = True
         if r.keep and "clothes" in r.keep:
             ok[_band_of(r.keep["clothes"])] = True
+        T = r.target if getattr(r, "target", None) is not None else ref
+        if r.sel.clothes is not None and "clothes" in T and not (r.keep and "clothes" in r.keep):
+            ok[_band_of(T["clothes"])] = True        # áo theo màu áo mẫu
+        for k in r.sel.bands:
+            if f"band{k}" in T and not (r.keep and f"band{k}" in r.keep):
+                ok[k] = True                         # dải có ở cả hai ảnh -> được chỉnh HSL dải đó
     return ok
 
 
@@ -1410,8 +1480,8 @@ def copy_color(photos, scenes: list[int], embs, ref: Reference, segment=None, lo
             s, idx = make_sample(photos[i].preview, regmaps.get(i), seed=j)
         sel = select(s)
         m0 = measure(s.px, sel)
-        keep = {key: m0[key] for key in KEEP_KEYS if key in m0}     # màu áo gốc: phải giữ
         tgt, used = scene_target(ref, embs[i] if embs is not None else None)
+        keep = make_keep(m0, tgt if tgt is not None else ref.stats)
         if i in same:   # ảnh mẫu là bản đã chỉnh của CHÍNH ảnh này -> khớp từng điểm ảnh
             rimg = ref.items[same[i]]["img"]
             base = base_imgs[j] if base_imgs is not None else photos[i].preview

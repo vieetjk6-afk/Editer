@@ -704,7 +704,9 @@ function verdict(v) {
 }
 function metricTiles(rp) {
   const names = [["da", "Da người"], ["trắng", "Màu trắng"], ["trời", "Trời"], ["cây", "Cây lá"], ["sáng tối", "Điểm đen / trắng"],
-                 ["áo", "Màu áo (giữ như gốc)"], ["điểm ảnh", "Từng điểm ảnh (cùng khung)"]];
+                 ["áo", "Màu áo (giữ như gốc)"], ["áo theo mẫu", "Màu áo (theo áo mẫu)"],
+                 ["màu khác", "Màu khác (hoa, trang trí)"], ["giữ màu", "Màu mẫu không có (giữ gốc)"],
+                 ["điểm ảnh", "Từng điểm ảnh (cùng khung)"]];
   return `<div class="metrics">${names.filter(([k]) => rp && rp[k] != null).map(([k, label]) => {
     const [cls, txt] = verdict(rp[k]);
     return `<div class="metric ${cls}"><div class="k">${label}</div><div class="v">${rp[k].toFixed(1)}</div><div class="q">${txt}</div></div>`;
