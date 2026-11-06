@@ -11,6 +11,15 @@ BẠN XEM ẢNH BẰNG LIGHTROOM CLASSIC?  (lý do thường gặp của "không
  lưu thông số). Muốn thấy: trong Lightroom chọn các ảnh -> Metadata -> Read Metadata from Files (Đọc siêu
  dữ liệu từ tệp). Cách tiện hơn: dùng plugin bên dưới, Editer chỉnh thẳng trong catalog.
 
+BẢN 0.14.2 — CHÉP MÀU KIỂU EVOTO: SỬA MÀU DA NHỢT, XÁM (ảnh cận mặt bạn gửi, độ mạnh 80%)
+ Nguyên nhân: (1) đường cong sáng tối dồn vùng sáng sát trắng để khớp điểm trắng ảnh mẫu -> trán, mũi, gò má
+ trắng bệch, mất màu da; (2) hoa / áo rực làm "gu" giảm độ rực chung -> da xám theo.
+ - Vùng sáng giữ độ dốc: mặt sáng vẫn còn màu da.
+ - Độ rực chung không đụng màu da (như Vibrance của Lightroom).
+ - Da theo da ảnh mẫu đủ 100% (trước 85%), lớp da riêng được chỉnh nhiều hơn.
+ - Ảnh mẫu được chọn không thấy da: mượn da từ các ảnh mẫu khác; không ảnh mẫu nào có da: giữ màu da của ảnh.
+ - Người nhỏ trong ảnh (ảnh toàn thân): AI phân vùng lại quanh người để thấy mặt / da rõ hơn.
+
 BẢN 0.14.1 — sửa lỗi "An internal error has occurred: Can't get collection information after creating
  collection inside the same withWriteAccessDo function" ở bước cuối của chép màu kiểu Evoto (đưa ảnh mới vào
  Lightroom). Lỗi xảy ra SAU khi ảnh mới đã làm xong: ảnh vẫn nằm trong thư mục "Editer chep mau" cạnh ảnh gốc.

@@ -143,6 +143,70 @@ def test_files(tmp: Path):
     print("[evoto] ghi ảnh mới (giữ EXIF), không ghi đè, dừng giữa chừng: OK")
 
 
+def test_skin_not_washed():
+    """Lỗi thật 0.14.0 (ảnh cận mặt, độ mạnh 80%): da nhợt, xám — hoa / áo rực làm "gu" giảm độ rực chung kéo da
+    theo, đường cong dồn vùng sáng sát trắng (trán, mũi trắng bệch). Giờ: da theo da mẫu, vùng sáng trên mặt
+    còn màu, không bị đẩy sát trắng."""
+    _, _, ref = ref_of(57, skin_lab=(66, 17, 15))
+    img, reg = scene(58, skin_lab=(74, 12, 14), flowers=True)       # mặt sáng, hoa tím / hồng rực
+    lab = lab_of(img).reshape(img.shape)
+    face = np.isin(reg, (8,))                                          # FACE
+    yy = np.mgrid[:img.shape[0], :img.shape[1]][0]
+    lab[face & (yy % 4 == 0)] = (86, 8, 10)                            # điểm sáng trên mặt (trán, mũi)
+    img = (np.clip(color.lab_to_srgb(lab.reshape(-1, 3)), 0, 1).reshape(img.shape) * 255 + 0.5).astype(np.uint8)
+    kq, out = run(img, reg, ref, 0.8)
+    hi = (face & (yy % 4 == 0)).reshape(-1)
+    l0, l1 = lab_of(img)[hi], lab_of(out)[hi]
+    c0, c1 = np.hypot(*l0[:, 1:].T).mean(), np.hypot(*l1[:, 1:].T).mean()
+    print(f"[evoto] mặt sáng: {M.fmt(kq.report)} | điểm sáng trên mặt: L {l0[:, 0].mean():.0f}->{l1[:, 0].mean():.0f},"
+          f" độ đậm {c0:.1f}->{c1:.1f}")
+    assert kq.report["da"][1] < 2.0, kq.report
+    assert l1[:, 0].mean() < 93 and c1 > 0.9 * c0, "vùng sáng trên mặt không được trắng bệch / mất màu"
+
+
+def test_ref_without_skin_keeps_skin():
+    """Ảnh mẫu không thấy da (người quá nhỏ, ảnh cảnh): giữ tông + độ đậm màu da của ảnh, không để "gu" nhuộm."""
+    img_r, reg_r = scene(59)
+    reg_r = reg_r.copy()
+    reg_r[np.isin(reg_r, (1, 8))] = 0                                  # ảnh mẫu: không có da / mặt
+    ref = M.sane(M.measure(render(img_r, GU, GU_SHOT), reg_r, "mau-khong-da"))
+    assert "skin" not in ref.reg
+    img, reg = scene(60, light_k=4600)
+    kq, out = run(img, reg, ref)
+    m = np.isin(reg, (1, 8)).reshape(-1)
+    a0, a1 = lab_of(img)[m].mean(0), lab_of(out)[m].mean(0)
+    dh = abs((np.degrees(np.arctan2(a0[2], a0[1]) - np.arctan2(a1[2], a1[1])) + 180) % 360 - 180)
+    c0, c1 = np.hypot(a0[1], a0[2]), np.hypot(a1[1], a1[2])
+    print(f"[evoto] ảnh mẫu không có da: da giữ tông (lệch {dh:.1f}°), độ đậm {c0:.0f}->{c1:.0f}; {kq.notes}")
+    assert dh < 6 and 0.8 < c1 / c0 < 1.25
+
+
+def test_pick_ref_borrows_skin():
+    a, b = M.Mau(ten="a"), M.Mau(ten="b")
+    a.reg["neutral"] = (np.array([90.0, 0, 2]), np.eye(3), 500)
+    b.reg["skin"] = (np.array([62.0, 16, 14]), np.eye(3), 300)
+    a.emb, b.emb = np.array([1.0, 0]), np.array([0.0, 1])
+    got = M.pick_ref([a, b], np.array([1.0, 0.0]))
+    assert got.ten == "a" and "skin" in got.reg and "skin" not in a.reg, "mượn da từ ảnh mẫu khác, không sửa ảnh mẫu gốc"
+
+
+def test_refine_people():
+    """Người nhỏ: mô hình chỉ thấy "người" khi nhìn cả ảnh; phân vùng lại khung quanh người thì thấy mặt / da."""
+    h, w = 300, 400
+    img = np.full((h, w, 3), 200, np.uint8)
+
+    def seg(a):
+        out = np.zeros(a.shape[:2], np.uint8)
+        if a.shape[0] >= 400:                       # khung đã phóng to: thấy mặt (giữa) + áo (dưới)
+            out[: a.shape[0] // 3] = 8
+            out[a.shape[0] // 3:] = 3
+        else:                                       # cả ảnh: chỉ thấy "người" ở góc
+            out[100:160, 50:80] = 7
+        return out
+    reg = M.refine_people(img, seg(img), seg)
+    assert (reg == 8).sum() > 100 and (reg == 3).sum() > 100 and (reg[:90] == 8).sum() == 0
+
+
 def test_no_people():
     """Ảnh chi tiết (nhẫn trên bàn gỗ, thiệp...) không có người, không có đồ trắng: vẫn chạy, chỉ đổi vừa phải."""
     _, _, ref = ref_of(55)
@@ -168,6 +232,10 @@ if __name__ == "__main__":
     test_flowers_not_neon()
     test_strength_and_full_res()
     test_no_people()
+    test_skin_not_washed()
+    test_ref_without_skin_keeps_skin()
+    test_pick_ref_borrows_skin()
+    test_refine_people()
     with tempfile.TemporaryDirectory() as d:
         test_files(Path(d))
     print(f"EVOTO OK ({__import__('time').time() - t0:.0f}s)")

@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 
 from . import color
-from .look import CLOTHES, FACE, OTHER, PERSON, PLANT, SKIN, SKY, _band_of, sky_mismatch
+from .look import CLOTHES, FACE, HAIR, OTHER, PERSON, PLANT, SKIN, SKY, _band_of, sky_mismatch
 
 ANALYSIS = 768          # cạnh dài ảnh dùng để phân tích (nhanh; bảng màu áp lên ảnh đầy đủ)
 N_LUT = 17              # số nút mỗi chiều của bảng màu 3D
@@ -232,7 +232,11 @@ class Gu:
         k = 1.0 + 0.5 * ((L2 + 16.0) / (L + 16.0) - 1.0)            # sáng lên thì màu đậm theo một nửa
         ab = lab[:, 1:] * k[:, None]
         C = np.hypot(ab[:, 0], ab[:, 1])
-        ab *= (1.0 + (self.sat - 1.0) / (1.0 + (C / 45.0) ** 2))[:, None]
+        # độ rực chung KHÔNG đụng màu da (như Vibrance của Lightroom): hoa, áo rực làm ảnh giảm độ rực thì da không
+        # bị xám theo (lỗi thật 0.14.0: da nhợt, xám)
+        h = np.degrees(np.arctan2(ab[:, 1], ab[:, 0]))
+        skin_like = np.exp(-((h - 50.0) / 28.0) ** 2) * np.clip((45.0 - C) / 15.0, 0.0, 1.0)
+        ab *= (1.0 + (self.sat - 1.0) * (1.0 - 0.85 * skin_like) / (1.0 + (C / 45.0) ** 2))[:, None]
         ab += self.shadow[None, :] * _smoothstep(45, 15, L2)[:, None]
         ab += self.high[None, :] * _smoothstep(65, 92, L2)[:, None]
         return np.column_stack([L2, ab])
@@ -261,7 +265,7 @@ def make_gu(t: Mau, r: Mau, log=None) -> Gu:
     # 2. sáng tối: điểm đen, điểm trắng (chất của "gu"), độ sáng da (ảnh cưới: mặt sáng như mẫu)
     xs, ys = [], []
     tq, rq = t.Lq, r.Lq
-    for i, w in ((0, 0.8), (6, 0.8)):
+    for i, w in ((0, 0.8), (6, 0.6)):
         xs.append(tq[i])
         ys.append(tq[i] + w * (rq[i] - tq[i]))
     if "skin" in t.reg and "skin" in r.reg:
@@ -273,7 +277,12 @@ def make_gu(t: Mau, r: Mau, log=None) -> Gu:
         ys.append(tq[3] + 0.3 * np.clip(rq[3] - tq[3], -12, 12))
     if t.white_L and r.white_L and r.white_L > 72:
         xs.append(t.white_L)
-        ys.append(t.white_L + 0.6 * (r.white_L - t.white_L))
+        ys.append(t.white_L + 0.4 * (r.white_L - t.white_L))
+    # vùng sáng giữ độ dốc >= 0,55: điểm sáng không bị dồn sát trắng (lỗi thật 0.14.0: trán, mũi, gò má trắng bệch,
+    # mất màu da vì đường cong dồn 83-100 vào 95-100)
+    for i in range(len(xs)):
+        if i != 0:
+            ys[i] = min(ys[i], 100.0 - 0.55 * (100.0 - xs[i]))
     y0 = float(np.clip(ys[0] - xs[0], 0.0, 15.0))                 # điểm đen nâng (kiểu "matte") nếu mẫu có
     y1 = float(np.clip(ys[1] + (100.0 - xs[1]), 85.0, 100.0))
     gx, gy = _monotone([0.0] + xs + [100.0], [y0] + ys + [y1])
@@ -414,7 +423,7 @@ def plan(rgb_u8: np.ndarray, reg: np.ndarray | None, ref: Mau, strength: float =
     # (tên, độ mạnh, trọng số, giới hạn co giãn độ tương phản trong vùng: da giữ khối sáng tối của mặt)
     # da trọng số vừa phải trong bảng chung (đồ trắng hồng, quạt giấy... cùng màu da không bị kéo theo); phần da còn
     # lệch do lớp da riêng qua mặt nạ lo
-    for name, s, w, lim in (("skin", 0.85, 1.5, (0.8, 1.25)), ("plant", 0.75, 1.5, (0.7, 1.4)),
+    for name, s, w, lim in (("skin", 1.0, 1.5, (0.8, 1.25)), ("plant", 0.75, 1.5, (0.7, 1.4)),
                             ("sky", 0.75, 1.0, (0.7, 1.4))):
         m = mk[name]
         if name not in t.reg or name not in ref.reg or m.sum() < 60:
@@ -426,6 +435,13 @@ def plan(rgb_u8: np.ndarray, reg: np.ndarray | None, ref: Mau, strength: float =
         f = mkl(mu, cov, ref.reg[name][0], ref.reg[name][1], *lim)
         want[m] = base[m] + s * (f(base[m]) - base[m])
         wt[m] = w
+    m = mk["skin"]
+    if m.sum() >= 60 and "skin" not in ref.reg:
+        # ảnh mẫu không thấy da (người quá nhỏ, ảnh cảnh...): giữ tông + độ đậm màu da của ảnh, chỉ theo sáng tối
+        kk = (base[m, :1] + 16.0) / (lab0[m, :1] + 16.0)
+        want[m, 1:] = lab0[m, 1:] * (1.0 + 0.5 * (kk - 1.0))
+        wt[m] = 2.0
+        notes.append("ảnh mẫu không thấy da -> giữ màu da của ảnh, chỉ theo sáng tối")
     # trắng: ám màu trắng đúng như mẫu (gu đã cân, chỉnh nốt phần còn lệch)
     m = mk["neutral"]
     if m.sum() >= 60 and ref.neutral is not None:
@@ -470,7 +486,7 @@ def plan(rgb_u8: np.ndarray, reg: np.ndarray | None, ref: Mau, strength: float =
             got = color.srgb_to_lab(np.clip(lut_apply_np(table, px[m]), 0, 1)).mean(axis=0)
             goal = base[m].mean(axis=0) + strength * (want[m].mean(axis=0) - base[m].mean(axis=0)) \
                 if strength < 1.0 else want[m].mean(axis=0)
-            d = np.clip(goal - got, [-8, -7, -7], [8, 7, 7])
+            d = np.clip(goal - got, [-10, -10, -10], [10, 10, 10])
             if np.abs(d).max() > 0.8:
                 lab_t = color.srgb_to_lab(table) + d[None, :]
                 skin_table = np.clip(color.lab_to_srgb(lab_t), 0, 1)
@@ -544,6 +560,43 @@ def render(im, k: KetQua):
 
 
 # ------------------------------------------------------------------ cả lô
+PEOPLE = (PERSON, FACE, SKIN, HAIR, CLOTHES)
+
+
+def refine_people(a: np.ndarray, reg: np.ndarray, segment) -> np.ndarray:
+    """Người nhỏ trong ảnh (ảnh toàn thân, cô dâu chú rể đứng xa): mô hình AI nhìn cả ảnh ở 512 điểm nên dễ sót mặt /
+    da. Phân vùng lại trên khung quanh người (phóng to) rồi dán mặt / da / tóc / áo vào."""
+    from PIL import Image
+    person = np.isin(reg, PEOPLE)
+    if person.sum() < 200:
+        return reg
+    ys, xs = np.nonzero(person)
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    h, w = reg.shape
+    if (y1 - y0) * (x1 - x0) > 0.45 * h * w:
+        return reg                                   # người đã đủ lớn
+    pad = int(0.08 * max(y1 - y0, x1 - x0)) + 4
+    y0, y1, x0, x1 = max(0, y0 - pad), min(h, y1 + pad), max(0, x0 - pad), min(w, x1 + pad)
+    crop = Image.fromarray(np.ascontiguousarray(a[y0:y1, x0:x1]))
+    scale = ANALYSIS / max(crop.size)
+    if scale > 1.0:
+        crop = crop.resize((max(1, int(crop.width * scale)), max(1, int(crop.height * scale))), Image.LANCZOS)
+    sub = segment(np.asarray(crop))
+    sub = np.asarray(Image.fromarray(sub.astype(np.uint8)).resize((x1 - x0, y1 - y0), Image.NEAREST))
+    parts = np.isin(sub, (FACE, SKIN, HAIR, CLOTHES))
+    out = reg.copy()
+    win = out[y0:y1, x0:x1]
+    win[parts] = sub[parts]
+    return out
+
+
+def segmenter(segment):
+    """Hàm phân vùng dùng cho chép màu: phân vùng cả ảnh + phân vùng lại quanh người nhỏ."""
+    if segment is None:
+        return None
+    return lambda a: refine_people(a, segment(a), segment)
+
+
 def load_refs(paths, segment=None, embedder=None, log=print) -> list[Mau]:
     refs = []
     for p in paths:
@@ -561,12 +614,23 @@ def load_refs(paths, segment=None, embedder=None, log=print) -> list[Mau]:
 
 
 def pick_ref(refs: list[Mau], emb) -> Mau:
+    """Ảnh mẫu giống cảnh nhất (trắng, trời, cây, sáng tối theo cảnh). Màu DA là "gu" chung của cả bộ ảnh mẫu: ảnh
+    mẫu được chọn không thấy da (người nhỏ, ảnh cảnh) thì lấy da gộp từ các ảnh mẫu khác."""
     if len(refs) == 1:
         return refs[0]
     if emb is not None and all(r.emb is not None for r in refs):
         sims = [float(np.dot(emb, r.emb)) for r in refs]
-        return refs[int(np.argmax(sims))]
-    return merge(refs)
+        best = refs[int(np.argmax(sims))]
+    else:
+        return merge(refs)
+    if "skin" not in best.reg:
+        others = [r for r in refs if "skin" in r.reg]
+        if others:
+            from copy import copy
+            best = copy(best)
+            best.reg = dict(best.reg)
+            best.reg["skin"] = merge(others).reg["skin"] if len(others) > 1 else others[0].reg["skin"]
+    return best
 
 
 def copy_one(src, dst, refs: list[Mau], segment=None, embedder=None, strength: float = 1.0, quality: int = 95,
@@ -610,7 +674,7 @@ def run_batch(srcs, dsts, ref_paths, strength=1.0, quality=95, use_ai=True, log=
         seg = ai.Segmenter.get()
         emb = ai.Embedder.get() if len(ref_paths) > 1 else None
         log("AI phân vùng (da, áo, trời, cây): " + (f"BẬT ({seg.device})" if seg else "TẮT (không có mô hình)"))
-    segment = seg.segment if seg else None
+    segment = segmenter(seg.segment) if seg else None
     refs = load_refs(ref_paths, segment, emb, log)
     out = []
     for i, (s, d) in enumerate(zip(srcs, dsts)):
