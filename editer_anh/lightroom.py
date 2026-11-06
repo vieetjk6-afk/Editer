@@ -376,15 +376,21 @@ def run_copy_pixels(job: dict, log=print, workers: int = 8, use_ai: bool = True)
     strength = max(0.0, min(1.0, float(job.get("do_manh", 100)) / 100.0))
     quality = int(job.get("chat_luong", 95))
     log(f"Lightroom: chép màu kiểu Evoto từ {len(refs)} ảnh mẫu cho {len(items)} ảnh (độ mạnh {strength:.0%})")
-    srcs, dsts = [], []
+    srcs, dsts, ok_items, bad = [], [], [], []
     taken: set = set()
     for it in items:
-        folder = Path(it.get("thu_muc") or Path(it["vao"]).parent)
-        folder.mkdir(parents=True, exist_ok=True)
-        dst = mauanh.out_name(folder, Path(it.get("goc") or it["vao"]), taken)
+        try:   # một ảnh không tạo được thư mục ra (ổ chỉ đọc, đường dẫn lạ...) không làm hỏng cả lô
+            folder = Path(it.get("thu_muc") or Path(it["vao"]).parent)
+            folder.mkdir(parents=True, exist_ok=True)
+            dst = mauanh.out_name(folder, Path(it.get("goc") or it["vao"]), taken)
+        except OSError as e:
+            bad.append({"i": it.get("i"), "loi": f"không tạo được thư mục ảnh ra: {e}"})
+            log(f"  {Path(str(it.get('goc') or it.get('vao'))).name}: LỖI không tạo được thư mục ảnh ra ({e})")
+            continue
         taken.add(str(dst).lower())
         srcs.append(it["vao"])
         dsts.append(dst)
+        ok_items.append(it)
     prog, huy = job.get("tien_do"), job.get("huy")
 
     def progress(k, n):
@@ -394,12 +400,13 @@ def run_copy_pixels(job: dict, log=print, workers: int = 8, use_ai: bool = True)
     def cancel():
         return bool(huy) and Path(huy).exists()
 
-    res = mauanh.run_batch(srcs, dsts, refs, strength, quality, use_ai, log, progress, cancel)
-    out = [{"i": it.get("i"), **r} for it, r in zip(items, res)]
+    res = mauanh.run_batch(srcs, dsts, refs, strength, quality, use_ai, log, progress, cancel) if srcs else []
+    out = bad + [{"i": it.get("i"), **r} for it, r in zip(ok_items, res)]
     n_ok = sum(1 for r in res if "ra" in r)
-    log(f"XONG: {n_ok} ảnh mới" + (f", {len(res) - n_ok} ảnh lỗi" if len(res) > n_ok else "")
-        + (" (đã dừng giữa chừng)" if len(res) < len(items) else ""))
-    return {"ok": True, "phien_ban": __version__, "anh": out, "so_anh": n_ok, "dung_giua_chung": len(res) < len(items)}
+    stopped = len(res) < len(ok_items)
+    log(f"XONG: {n_ok} ảnh mới" + (f", {len(out) - n_ok} ảnh lỗi" if len(out) > n_ok else "")
+        + (" (đã dừng giữa chừng)" if stopped else ""))
+    return {"ok": True, "phien_ban": __version__, "anh": out, "so_anh": n_ok, "dung_giua_chung": stopped}
 
 
 def run_job(kind: str, job_path: str, out_path: str, log=print, workers: int = 8, use_ai: bool = True) -> dict:

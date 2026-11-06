@@ -201,7 +201,7 @@ local modules = {
   LrDate = { currentTime = function() return py_now() end },
   LrPathUtils = {
     child = function(a, b) return a .. '/' .. b end,
-    parent = function(p) return (p:gsub('/[^/]*$', '')) end,
+    parent = function(p) return (p:gsub('[/\\][^/\\]*$', '')) end,     -- như Lightroom: cả \ (Windows) lẫn /
     leafName = function(p) return (p:match('[^/\\]*$')) end,
     getStandardFilePath = function(k) assert(k == 'home', k) return FAKE_HOME end,
   },

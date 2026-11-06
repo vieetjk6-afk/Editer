@@ -549,6 +549,25 @@ def test_copy_pixels(tmp: Path) -> None:
     print("[lightroom] chép màu kiểu Evoto: xuất 2 đợt, 4 ảnh mới + bộ sưu tập, ảnh gốc giữ nguyên, không ghi đè: OK")
 
 
+def test_copy_pixels_bad_folder(tmp: Path) -> None:
+    """Một ảnh không tạo được thư mục ảnh ra (lỗi thật ở máy build Windows: tên file bị coi là thư mục) thì chỉ ảnh
+    đó báo lỗi, các ảnh khác vẫn ra ảnh mới."""
+    from PIL import Image
+    d = tmp / "evoto-loi"
+    d.mkdir()
+    Image.new("RGB", (64, 48), (200, 150, 120)).save(d / "a.jpg")
+    Image.new("RGB", (64, 48), (120, 150, 200)).save(d / "b.jpg")
+    (d / "chan").write_text("không phải thư mục")
+    job = {"mau_jpg": [str(d / "a.jpg")], "anh": [
+        {"i": 0, "vao": str(d / "a.jpg"), "goc": str(d / "a.NEF"), "thu_muc": str(d / "chan" / "Editer chep mau")},
+        {"i": 1, "vao": str(d / "b.jpg"), "goc": str(d / "b.NEF"), "thu_muc": str(d / "Editer chep mau")}]}
+    res = lightroom.run_copy_pixels(job, log=lambda m: None, use_ai=False)
+    by_i = {r["i"]: r for r in res["anh"]}
+    assert res["ok"] and res["so_anh"] == 1 and "loi" in by_i[0] and "ra" in by_i[1], res
+    assert (d / "Editer chep mau" / "b-editer.jpg").exists()
+    print("[lightroom] chép màu kiểu Evoto: 1 ảnh lỗi thư mục không làm hỏng cả lô: OK")
+
+
 def test_install(tmp: Path) -> None:
     os.environ["APPDATA"] = str(tmp / "appdata")
     lightroom.modules_dir().parent.mkdir(parents=True)          # có Lightroom
@@ -576,6 +595,7 @@ def main(tmp: Path) -> None:
     test_plugin(tmp, paths)
     test_copy(tmp)
     test_copy_pixels(tmp)
+    test_copy_pixels_bad_folder(tmp)
     test_install(tmp)
 
 
