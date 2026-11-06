@@ -85,8 +85,9 @@ end
 
 local catalog = { photos = {} }
 fake.catalog = catalog
-function catalog:getMultipleSelectedOrAllPhotos() return { unpack(self.photos) } end
-function catalog:getTargetPhotos() return { unpack(self.photos) } end
+-- fake.selection: các ảnh đang chọn (mặc định: cả catalog)
+function catalog:getMultipleSelectedOrAllPhotos() return { unpack(fake.selection or self.photos) } end
+function catalog:getTargetPhotos() return { unpack(fake.selection or self.photos) } end
 function catalog:getPath() return '/tmp/editer-test.lrcat' end
 function catalog:withWriteAccessDo(name, fn, opts)
   assert(not fake.inWrite, 'withWriteAccessDo lồng nhau')

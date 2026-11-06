@@ -484,11 +484,15 @@ def test_copy_pixels(tmp: Path) -> None:
         procs[len(procs) + 1] = subprocess.Popen(split_cmd(cmd), env={**os.environ, "PYTHONUTF8": "1"})
         return len(procs)
 
+    sizes = []
+
     def py_render(path, settings_json, out, size):
-        """Lightroom giả xuất ảnh: ảnh xem trước trong DNG, đầy đủ kích thước khi size = 0, có EXIF."""
-        assert int(size or 0) == 0, "chép màu kiểu Evoto phải xuất ảnh đầy đủ độ phân giải"
+        """Lightroom giả xuất ảnh: ảnh xem trước trong DNG (cạnh dài <= size, 0 = đầy đủ), có EXIF."""
+        sizes.append(int(size or 0))
         ph = raw.load(path)
         im = Image.fromarray(ph.preview)
+        if size:
+            im.thumbnail((int(size), int(size)))
         ex = Image.Exif()
         ex[0x0110] = "NIKON Z5_2"
         im.save(out, quality=100, exif=ex.tobytes())
@@ -524,7 +528,9 @@ def test_copy_pixels(tmp: Path) -> None:
     lua.execute("require('EditerLR').chepMauAnh()")
     msg = [m.msg for m in fake.messages.values()][-1]
     assert "Đã chép màu kiểu Evoto cho 4 ảnh (độ mạnh 100%)" in msg and "Đã đưa 4 ảnh mới" in msg, msg
-    assert fake.modal.title == "Editer: chép màu kiểu Evoto" and fake.exports == 2 and fake.exported == 4
+    # bước 1: ảnh nhỏ của cả lô (1 lần xuất) để phân tích; bước 2: ảnh đầy đủ 2 đợt (3 + 1 ảnh)
+    assert fake.modal.title == "Editer: chép màu kiểu Evoto" and fake.exports == 3 and fake.exported == 8
+    assert sizes == [1024] * 4 + [0] * 4, sizes
     outs = [f / "Editer chep mau" / f"{p.stem}-editer.jpg" for f in folders for p in sorted(f.glob("*.dng"))]
     for o in outs:
         assert o.exists(), o
@@ -546,7 +552,18 @@ def test_copy_pixels(tmp: Path) -> None:
         assert o.with_name(o.stem + "-2.jpg").exists()
     got = sorted(Path(x._path).name for x in coll._photos.values())
     assert all(n.endswith("-editer-2.jpg") for n in got) and len(got) == 4, got
-    print("[lightroom] chép màu kiểu Evoto: xuất 2 đợt, 4 ảnh mới + bộ sưu tập, ảnh gốc giữ nguyên, không ghi đè: OK")
+    # chạy lại khi đang xem bộ sưu tập kết quả (chỉ chọn ảnh -editer-2.jpg): phải chép màu lên ẢNH GỐC, không chép
+    # chồng (lỗi thật 0.14.2: ảnh cháy, mỗi ảnh một màu)
+    lua.eval("function(f, c) local s = {} for i, p in ipairs(c._photos) do s[i] = p end f.selection = s end")(fake, coll)
+    del sizes[:]
+    lua.execute("require('EditerLR').chepMauAnh()")
+    msg = [m.msg for m in fake.messages.values()][-1]
+    assert "Đã chép màu kiểu Evoto cho 4 ảnh" in msg and "4 ảnh bạn chọn là ảnh Editer đã chép màu" in msg, msg
+    for o in outs:
+        assert o.with_name(o.stem + "-3.jpg").exists(), "ảnh mới phải từ ảnh gốc (-editer-3.jpg cạnh ảnh gốc)"
+    assert not any(f.joinpath("Editer chep mau", "Editer chep mau").exists() for f in folders), "không chép chồng"
+    print("[lightroom] chép màu kiểu Evoto: phân tích cả lô + áp 2 đợt, 4 ảnh mới + bộ sưu tập, ảnh gốc giữ nguyên, "
+          "không ghi đè, chạy lại từ bộ sưu tập dùng ảnh gốc: OK")
 
 
 def test_copy_pixels_bad_folder(tmp: Path) -> None:

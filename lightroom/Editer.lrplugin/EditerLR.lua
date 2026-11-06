@@ -648,8 +648,9 @@ local function askEvoto()
   return result
 end
 
--- Xuất ảnh đầy đủ độ phân giải (JPEG chất lượng cao nhất, sRGB, giữ EXIF) theo thông số hiện tại của ảnh.
-local function exportFull(photos, dir)
+-- Xuất ảnh theo thông số hiện tại của ảnh (JPEG sRGB, giữ EXIF): size = nil -> đầy đủ độ phân giải, chất lượng cao
+-- nhất (bước áp màu); size = số -> ảnh nhỏ cạnh dài size (bước phân tích cả lô).
+local function exportFull(photos, dir, size)
   local session = LrExportSession {
     photosToExport = photos,
     exportSettings = {
@@ -657,9 +658,14 @@ local function exportFull(photos, dir)
       LR_export_destinationPathPrefix = dir,
       LR_export_useSubfolder = false,
       LR_format = 'JPEG',
-      LR_jpeg_quality = 1.0,
+      LR_jpeg_quality = size and 0.9 or 1.0,
       LR_export_colorSpace = 'sRGB',
-      LR_size_doConstrain = false,
+      LR_size_doConstrain = size and true or false,
+      LR_size_resizeType = 'wh',
+      LR_size_maxWidth = size or nil,
+      LR_size_maxHeight = size or nil,
+      LR_size_units = 'pixels',
+      LR_size_doNotEnlarge = true,
       LR_collisionHandling = 'rename',
       LR_renamingTokensOn = false,
       LR_outputSharpeningOn = false,
@@ -687,7 +693,7 @@ local function exportFull(photos, dir)
 end
 
 -- Chạy editer-anh.exe (nền), cập nhật thanh tiến độ theo file tien-do; bấm dừng -> ghi file huy.
-local function runHelperProgress(kind, job, progress, offset, total)
+local function runHelperProgress(kind, job, progress, offset, total, caption)
   local cmd = helperCmd()
   if not cmd then
     return nil, 'Chưa tìm thấy chương trình Editer.\nMở "Editer Anh.exe" → mục "Dùng trong Lightroom" → bấm '
@@ -723,7 +729,7 @@ local function runHelperProgress(kind, job, progress, offset, total)
       local ok, t = pcall(Core.decode, s)
       if ok and type(t) == 'table' and t.viec_id == job.viec_id and tonumber(t.xong) then
         progress:setPortionComplete(offset + t.xong, total)
-        progress:setCaption(string.format('Editer đổi màu %d / %d ảnh...%s', offset + t.xong, total,
+        progress:setCaption(string.format((caption or 'Editer đổi màu %d / %d ảnh...') .. '%s', offset + t.xong, total,
           WIN_ENV and ' (cửa sổ đen là Editer đang chạy — đừng đóng)' or ''))
       end
     end
@@ -753,20 +759,66 @@ function M.chepMauAnh()
   LrFunctionContext.callWithContext('Editer-chep-mau-kieu-evoto', function(context) chepMauAnh(context) end)
 end
 
+-- Ảnh kết quả của Editer (thư mục "Editer chep mau", tên ...-editer[-N].jpg) -> ẢNH GỐC trong catalog (nil: không
+-- thấy). Chạy lại từ bộ sưu tập kết quả thì chép màu lên ảnh gốc, không chép chồng lên ảnh đã chép (lỗi thật 0.14.2:
+-- ảnh cháy, mỗi ảnh một màu vì lần chạy thứ hai lấy ảnh -editer-2.jpg làm ảnh vào).
+local SRC_EXTS = { 'NEF', 'ARW', 'CR3', 'CR2', 'DNG', 'RAF', 'ORF', 'RW2', 'PEF', 'SRW', 'NRW', 'SR2', 'JPG', 'JPEG',
+                   'TIF', 'TIFF', 'HEIC', 'PNG' }
+
+local function originalOf(catalog, photo)
+  local p = photo
+  for _ = 1, 5 do
+    local path = p:getRawMetadata('path')
+    local dir = LrPathUtils.parent(path)
+    if LrPathUtils.leafName(dir) ~= OUT_DIR then return p, p ~= photo end
+    local stem = LrPathUtils.leafName(path):gsub('%.[^.]*$', '')
+    local prev
+    repeat
+      prev = stem
+      stem = stem:gsub('%-editer%-%d+$', ''):gsub('%-editer$', '')
+    until stem == prev
+    local up, found = LrPathUtils.parent(dir), nil
+    for _, ext in ipairs(SRC_EXTS) do
+      for _, e in ipairs({ ext, string.lower(ext) }) do
+        if not found then found = catalog:findPhotoByPath(LrPathUtils.child(up, stem .. '.' .. e)) end
+      end
+    end
+    if not found then return nil, true end
+    p = found
+  end
+  return nil, true
+end
+
 chepMauAnh = function(context)
   local catalog = LrApplication.activeCatalog()
   local photos = targetPhotos(catalog)
-  local list, video = {}, 0
+  local list, video, mapped, lost, seen = {}, 0, 0, 0, {}
   for _, p in ipairs(photos) do
     local okf, fmt = tpcall(function() return p:getRawMetadata('fileFormat') end)
-    if okf and fmt and string.upper(tostring(fmt)) == 'VIDEO' then video = video + 1 else list[#list + 1] = p end
+    if okf and fmt and string.upper(tostring(fmt)) == 'VIDEO' then
+      video = video + 1
+    else
+      local q, was = originalOf(catalog, p)
+      if not q then
+        lost = lost + 1
+      else
+        if was then mapped = mapped + 1 end
+        local id = tostring(q.localIdentifier)
+        if not seen[id] then
+          seen[id] = true
+          list[#list + 1] = q
+        end
+      end
+    end
   end
   if #list < 1 then
-    LrDialogs.message(TITLE, 'Chọn các ảnh cần chép màu (hoặc Ctrl+A cả thư mục) rồi chạy lại.', 'info')
+    LrDialogs.message(TITLE, 'Chọn các ảnh cần chép màu (hoặc Ctrl+A cả thư mục ảnh gốc) rồi chạy lại.'
+      .. (lost > 0 and string.format('\n\n(%d ảnh là ảnh Editer đã chép màu, không tìm thấy ảnh gốc của chúng.)', lost)
+      or ''), 'info')
     return
   end
   local jpgs = LrDialogs.runOpenPanel {
-    title = 'Editer: chọn ảnh JPG mẫu (màu bạn muốn theo) — chọn được nhiều ảnh, mỗi kiểu cảnh 1 ảnh càng tốt',
+    title = 'Editer: chọn ảnh JPG mẫu (màu bạn muốn theo) — nhiều ảnh thì gộp thành một kiểu màu cho cả lô',
     canChooseFiles = true, canChooseDirectories = false, allowsMultipleSelection = true,
     fileTypes = { 'jpg', 'jpeg', 'png', 'tif', 'tiff' },
   }
@@ -778,7 +830,8 @@ chepMauAnh = function(context)
       .. '→ bấm "Cài vào Lightroom" (chỉ cần làm 1 lần), rồi chạy lại.', 'critical')
     return
   end
-  local work = LrPathUtils.child(LrPathUtils.child(dataDir(), 'lightroom'), 'xuat-anh')
+  local base = LrPathUtils.child(dataDir(), 'lightroom')
+  local work = LrPathUtils.child(base, 'xuat-anh')
   if LrFileUtils.exists(work) then
     tpcall(function()                             -- dọn ảnh xuất tạm của lần trước (bị tắt giữa chừng)
       local dirs = {}
@@ -788,29 +841,73 @@ chepMauAnh = function(context)
       for _, d in ipairs(dirs) do deleteDir(d) end
     end)
   end
+  local planPath = LrPathUtils.child(base, 'ke-hoach-chep-mau.npz')
+  deleteFile(planPath)
   local progress = LrProgressScope { title = 'Editer: chép màu kiểu Evoto', functionContext = context }
   progress:setCancelable(true)
+  local index = {}                                -- ảnh -> số thứ tự trong lô (giữ nguyên qua 2 bước)
+  for i, p in ipairs(list) do index[tostring(p.localIdentifier)] = i - 1 end
   local made, failed, stopped = {}, {}, false
+
+  -- BƯỚC 1: ảnh nhỏ của CẢ LÔ -> chia cảnh, một kiểu màu cho cả lô, mỗi cảnh một bộ màu
+  progress:setCaption(string.format('Lightroom xuất ảnh nhỏ (%d ảnh) để phân tích cả lô...', #list))
+  local dirA = LrPathUtils.child(work, 'phan-tich')
+  LrFileUtils.createAllDirectories(dirA)
+  local smalls, xfailA = exportFull(list, dirA, 1024)
+  for _, e in ipairs(xfailA) do failed[#failed + 1] = e end
+  local anhA, allTimes = {}, true
+  for _, e in ipairs(smalls) do
+    local t
+    tpcall(function() t = e.photo:getRawMetadata('dateTimeOriginal') end)
+    if type(t) ~= 'number' then allTimes = false end
+    anhA[#anhA + 1] = { i = index[tostring(e.photo.localIdentifier)], vao = e.path,
+                        goc = e.photo:getRawMetadata('path'), thoi_gian = type(t) == 'number' and t or nil }
+  end
+  if not allTimes then                            -- thiếu giờ chụp ở vài ảnh: để Editer đọc EXIF cho mọi ảnh
+    for _, a in ipairs(anhA) do a.thoi_gian = nil end
+  end
+  local resA, errA = runHelperProgress('lr-chep-mau-anh', { buoc = 'phan-tich', mau_jpg = jpgs, do_manh = opt.do_manh,
+    ke_hoach = planPath, anh = anhA, ai = true }, progress, 0, #list, 'Editer phân tích cả lô: %d / %d ảnh...')
+  deleteDir(dirA)
+  if not resA then
+    progress:done()
+    LrDialogs.message(TITLE, errA, 'critical')
+    return
+  end
+  if resA.dung_giua_chung then stopped = true end
+  local skip = {}
+  for _, i in ipairs(resA.thieu or {}) do skip[i] = true end
+  local list2 = {}
+  for _, e in ipairs(smalls) do
+    local i = index[tostring(e.photo.localIdentifier)]
+    if not skip[i] then list2[#list2 + 1] = e.photo end
+  end
+
+  -- BƯỚC 2: ảnh đầy đủ từng đợt -> áp đúng bộ màu đã tính
   local CHUNK = M.CHUNK
-  for c0 = 1, #list, CHUNK do
-    if progress:isCanceled() then stopped = true break end
+  for c0 = 1, #list2, CHUNK do
+    if stopped or progress:isCanceled() then
+      stopped = true
+      break
+    end
     local chunk = {}
-    for i = c0, math.min(#list, c0 + CHUNK - 1) do chunk[#chunk + 1] = list[i] end
+    for i = c0, math.min(#list2, c0 + CHUNK - 1) do chunk[#chunk + 1] = list2[i] end
     progress:setCaption(string.format('Lightroom xuất ảnh %d-%d / %d (đầy đủ độ phân giải)...', c0,
-      c0 + #chunk - 1, #list))
+      c0 + #chunk - 1, #list2))
     local dir = LrPathUtils.child(work, tostring(c0))
     LrFileUtils.createAllDirectories(dir)
     local exported, xfail = exportFull(chunk, dir)
     for _, e in ipairs(xfail) do failed[#failed + 1] = e end
-    local anh = {}
-    for i, e in ipairs(exported) do
+    local anh, byI = {}, {}
+    for _, e in ipairs(exported) do
       local goc = e.photo:getRawMetadata('path')
-      anh[#anh + 1] = { i = i - 1, vao = e.path, goc = goc,
-                        thu_muc = LrPathUtils.child(LrPathUtils.parent(goc), OUT_DIR) }
+      local i = index[tostring(e.photo.localIdentifier)]
+      byI[i] = e
+      anh[#anh + 1] = { i = i, vao = e.path, goc = goc, thu_muc = LrPathUtils.child(LrPathUtils.parent(goc), OUT_DIR) }
     end
     if #anh > 0 then
-      local res, err = runHelperProgress('lr-chep-mau-anh', { mau_jpg = jpgs, do_manh = opt.do_manh,
-        chat_luong = 95, anh = anh, ai = true }, progress, c0 - 1, #list)
+      local res, err = runHelperProgress('lr-chep-mau-anh', { buoc = 'ap', ke_hoach = planPath, chat_luong = 95,
+        anh = anh, ai = true }, progress, c0 - 1, #list2, 'Editer đổi màu %d / %d ảnh...')
       if not res then
         deleteDir(dir)
         progress:done()
@@ -818,7 +915,7 @@ chepMauAnh = function(context)
         return
       end
       for _, d in ipairs(res.anh or {}) do
-        local e = exported[(d.i or -1) + 1]
+        local e = byI[d.i]
         if e and d.ra then
           made[#made + 1] = { path = d.ra, src = e.photo }
         elseif e then
@@ -830,6 +927,7 @@ chepMauAnh = function(context)
     deleteDir(dir)
     if stopped then break end
   end
+  deleteFile(planPath)
   local imported, coll, importErr = 0, nil, nil
   if opt.dua_vao and #made > 0 then
     progress:setCaption('Đưa ảnh mới vào Lightroom...')
@@ -882,6 +980,13 @@ chepMauAnh = function(context)
   if stopped then msg = msg .. '\n\n(Đã dừng giữa chừng theo yêu cầu.)' end
   if #failed > 0 then
     msg = msg .. string.format('\n\nKhông làm được %d ảnh: %s', #failed, Core.cut(table.concat(failed, '; '), 300))
+  end
+  if mapped > 0 then
+    msg = msg .. string.format('\n\n(%d ảnh bạn chọn là ảnh Editer đã chép màu — đã dùng ẢNH GỐC của chúng, không '
+      .. 'chép chồng.)', mapped)
+  end
+  if lost > 0 then
+    msg = msg .. string.format('\n\n(Bỏ qua %d ảnh Editer đã chép màu mà không tìm thấy ảnh gốc.)', lost)
   end
   if video > 0 then msg = msg .. string.format('\n\n(Bỏ qua %d video.)', video) end
   LrDialogs.message(TITLE, msg, #made > 0 and 'info' or 'critical')

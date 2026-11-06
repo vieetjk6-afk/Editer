@@ -207,6 +207,55 @@ def test_refine_people():
     assert (reg == 8).sum() > 100 and (reg == 3).sum() > 100 and (reg[:90] == 8).sum() == 0
 
 
+def test_scene_consistent():
+    """Lỗi thật 0.14.2: mỗi ảnh một màu (mỗi ảnh tự khớp riêng, theo ảnh mẫu riêng). Giờ: cùng cảnh -> cùng một bộ
+    màu, từng ảnh chỉ cân lại độ sáng theo da -> da, đồ trắng của các ảnh trong cảnh đều nhau."""
+    from PIL import Image
+    _, _, ref = ref_of(71, skin_lab=(66, 16, 15))
+    base, reg = scene(72, light_k=4800)
+    base = (np.clip(M.gain_srgb(base / 255.0, 2.0 ** -0.5), 0, 1) * 255 + 0.5).astype(np.uint8)   # váy trắng chưa cháy
+    photos, regs = [], []
+    # lệch phơi sáng như ảnh chụp liên tiếp (máy tự đo sáng): -0,5 / 0 / +0,3 EV (sáng hơn nữa thì váy trắng cháy,
+    # mất màu thật — không công cụ màu nào lấy lại được)
+    for k, (ev, crop) in enumerate(((0.0, None), (-0.5, (0, 0, 160, 120)), (0.3, (40, 30, 240, 160)))):
+        img, rg = base, reg
+        if crop:                                                       # khung khác (cận / rộng) -> nội dung khác
+            x0, y0, x1, y1 = crop
+            img, rg = img[y0:y1, x0:x1], rg[y0:y1, x0:x1]
+        img = (np.clip(M.gain_srgb(img / 255.0, 2.0 ** ev), 0, 1) * 255 + 0.5).astype(np.uint8)
+        photos.append(M.Anh(k, img, rg, 1000.0 + 20 * k, None, f"anh{k}"))
+        regs.append(rg)
+    plans = M.analyze(photos, [ref], 1.0, log=lambda m: None)
+    skins, whites = [], []
+    for p, rg in zip(photos, regs):
+        out = np.asarray(M.render(Image.fromarray(p.small), plans[p.i]))
+        lab = lab_of(out).reshape(out.shape)
+        skins.append(lab[np.isin(rg, (1, 8))].mean(0))
+        whites.append(lab[(rg == CLOTHES) & (lab[..., 0] > 70)].mean(0))
+    d_skin = max(float(color.delta_e2000(a, b)) for a in skins for b in skins)
+    d_white = max(float(np.hypot(*(a[1:] - b[1:]))) for a in whites for b in whites)
+    print(f"[evoto] cùng cảnh, 3 ảnh khác khung / phơi sáng (-0,5 / 0 / +0,3 EV): da lệch nhau tối đa ΔE {d_skin:.1f},"
+          f" trắng lệch nhau {d_white:.1f}")
+    assert d_skin < 2.5 and d_white < 3.0
+    # hai cảnh cách nhau 30 phút: mỗi cảnh bộ màu riêng
+    other, rg2 = scene(73, light_k=3400)
+    photos.append(M.Anh(9, other, rg2, 1000.0 + 1800, None, "khac"))
+    assert M.group(photos) == [0, 0, 0, 1]
+
+
+def test_plan_file(tmp: Path):
+    """Bước phân tích ghi kế hoạch ra file, bước áp (từng đợt ảnh đầy đủ) đọc lại cho đúng kết quả."""
+    from PIL import Image
+    _, _, ref = ref_of(74)
+    img, reg = scene(75, light_k=4500)
+    plans = M.analyze([M.Anh(3, img, reg, None, None, "a")], [ref], 0.9, log=lambda m: None)
+    M.save_plan(tmp / "kh.npz", plans)
+    back = M.load_plan(tmp / "kh.npz")
+    o1 = np.asarray(M.render(Image.fromarray(img), plans[3])).astype(int)
+    o2 = np.asarray(M.render(Image.fromarray(img), back[3])).astype(int)
+    assert np.abs(o1 - o2).max() <= 1 and back[3].bao_cao
+
+
 def test_no_people():
     """Ảnh chi tiết (nhẫn trên bàn gỗ, thiệp...) không có người, không có đồ trắng: vẫn chạy, chỉ đổi vừa phải."""
     _, _, ref = ref_of(55)
@@ -236,7 +285,9 @@ if __name__ == "__main__":
     test_ref_without_skin_keeps_skin()
     test_pick_ref_borrows_skin()
     test_refine_people()
+    test_scene_consistent()
     with tempfile.TemporaryDirectory() as d:
         test_files(Path(d))
+        test_plan_file(Path(d))
     print(f"EVOTO OK ({__import__('time').time() - t0:.0f}s)")
     _ = AS_SHOT

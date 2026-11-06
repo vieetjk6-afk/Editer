@@ -119,6 +119,8 @@ def _masks(lab: np.ndarray, reg: np.ndarray | None, loose: bool = False) -> dict
     need = max(150, int(0.002 * len(L)))
     if loose and m["neutral"].sum() < need:
         cand = np.flatnonzero(np.isin(reg, NEUTRAL_SET) & valid & (L > 55) & (cn < 24) & ~m["skin"])
+        if len(cand) >= 2 * need:   # đồ trắng là thứ SÁNG nhất trong nhóm nhạt màu (váy, rèm > tường be)
+            cand = cand[L[cand] >= np.percentile(L[cand], 60)]
         if len(cand) >= need:
             abn = lab[cand, 1:] * (86.0 / (L[cand, None] + 16.0))
             med = np.median(abn, axis=0)
@@ -401,19 +403,21 @@ class KetQua:
     skin_mask: np.ndarray | None           # mặt nạ da (ảnh phân tích, 0..1)
     report: dict
     notes: list
+    bao_cao: str = ""                       # báo cáo dạng chữ (khi đọc kế hoạch từ file)
 
 
 def _de(a, b) -> float:
     return float(color.delta_e2000(np.asarray(a, float), np.asarray(b, float)))
 
 
-def plan(rgb_u8: np.ndarray, reg: np.ndarray | None, ref: Mau, strength: float = 1.0, log=None) -> KetQua:
+def plan(rgb_u8: np.ndarray, reg: np.ndarray | None, ref: Mau, strength: float = 1.0, log=None,
+         masks: dict | None = None) -> KetQua:
     """Tính bảng màu cho một ảnh (ảnh phân tích nhỏ + bản đồ vùng) theo thống kê ảnh mẫu `ref`."""
     notes = []
     px = rgb_u8.reshape(-1, 3) / 255.0
     regf = reg.reshape(-1) if reg is not None else np.full(len(px), OTHER, np.uint8)
     lab0 = color.srgb_to_lab(px)
-    mk = _masks(lab0, regf, loose=True)
+    mk = masks if masks is not None else _masks(lab0, regf, loose=True)
     t = measure(rgb_u8, reg, masks=mk)
     gu = make_gu(t, ref, log)
     base = gu(px)                                          # Lab sau "gu" chung
@@ -665,30 +669,239 @@ def out_name(folder: Path, src: Path, taken=()) -> Path:
     return p
 
 
-def run_batch(srcs, dsts, ref_paths, strength=1.0, quality=95, use_ai=True, log=print, progress=None,
-              cancel=None) -> list[dict]:
-    """Chép màu cho cả lô: srcs[i] -> dsts[i]. progress(k, n) sau mỗi ảnh; cancel() -> True thì dừng."""
+# ------------------------------------------------------------------ cả lô: một "gu", mỗi cảnh một bộ màu
+@dataclass
+class Anh:
+    """Một ảnh trong lô, ở bước phân tích."""
+    i: int
+    small: np.ndarray                    # ảnh phân tích (uint8, cạnh dài ~ANALYSIS)
+    reg: np.ndarray | None               # bản đồ vùng
+    time: float | None = None            # giờ chụp (giây)
+    emb: np.ndarray | None = None        # "dấu vân tay" nội dung (CLIP)
+    ten: str = ""
+
+
+def capture_time(path) -> float | None:
+    """Giờ chụp trong EXIF (DateTimeOriginal) — Lightroom giữ EXIF khi xuất."""
+    from datetime import datetime
+
+    from PIL import Image
+    try:
+        with Image.open(path) as im:
+            ex = im.getexif()
+            v = ex.get_ifd(0x8769).get(0x9003) or ex.get(0x0132)
+        if v:
+            return datetime.strptime(str(v).strip()[:19], "%Y:%m:%d %H:%M:%S").timestamp()
+    except Exception:
+        pass
+    return None
+
+
+def group(photos: list[Anh]) -> list[int]:
+    """Chia cảnh như các mục khác của tool (giờ chụp cách > 4 phút, nội dung đổi hẳn). Không có giờ chụp: theo
+    thứ tự ảnh + nội dung (CLIP); không có AI: một cảnh."""
+    from types import SimpleNamespace
+
+    from . import style
+    if not photos:
+        return []
+    embs = np.stack([p.emb for p in photos]) if all(p.emb is not None for p in photos) else None
+    if any(p.time for p in photos):
+        return style.group_scenes([SimpleNamespace(time=p.time or 0.0) for p in photos], 4.0, embs)
+    if embs is None:
+        return [0] * len(photos)
+    return style.group_scenes([SimpleNamespace(time=120.0 * k) for k in range(len(photos))], 1e9, embs)
+
+
+def _Y(L):
+    """Lab L -> độ sáng tuyến tính Y (0..1)."""
+    f = (np.asarray(L, float) + 16.0) / 116.0
+    return np.where(f > 6 / 29, f ** 3, 3 * (6 / 29) ** 2 * (f - 4 / 29))
+
+
+def gain_srgb(rgb01: np.ndarray, g: float) -> np.ndarray:
+    """Phơi sáng (nhân kênh tuyến tính); tăng sáng thì vùng sáng uốn mềm như Lightroom, không cháy gắt."""
+    if abs(g - 1.0) < 1e-6:
+        return np.clip(rgb01, 0, 1)
+    lin = color.srgb_to_linear(np.clip(rgb01, 0, 1)) * g
+    if g > 1.0:
+        k = 0.8
+        over = lin > k
+        lin[over] = k + (1 - k) * (1 - np.exp(-(lin[over] - k) / (1 - k)))
+    return color.linear_to_srgb(np.clip(lin, 0, 1))
+
+
+def skin_L(a: np.ndarray, reg: np.ndarray | None) -> float | None:
+    lab = color.srgb_to_lab(a.reshape(-1, 3) / 255.0)
+    m = _masks(lab, reg.reshape(-1) if reg is not None else None, loose=True)["skin"]
+    return float(np.median(lab[m, 0])) if m.sum() >= 60 else None
+
+
+def plan_scene(photos: list[Anh], ref: Mau, strength: float = 1.0, log=None) -> dict:
+    """MỘT bộ màu cho cả cảnh (gom điểm ảnh của mọi ảnh trong cảnh), từng ảnh chỉ cân lại độ sáng theo da cho đều
+    -> các ảnh cùng cảnh ra cùng một màu (lỗi thật 0.14.2: mỗi ảnh một màu vì mỗi ảnh tự khớp riêng)."""
+    from PIL import Image
+    Ls = [skin_L(p.small, p.reg) for p in photos]
+    have = [v for v in Ls if v is not None]
+    target = float(np.median(have)) if have else None
+    gains = []
+    for v in Ls:
+        if target is None or v is None:
+            gains.append(1.0)
+        else:
+            ev = 0.9 * float(np.log2(_Y(target) / max(float(_Y(v)), 1e-4)))
+            gains.append(float(2.0 ** np.clip(ev, -1.0, 1.0)))
+    rng = np.random.default_rng(1)
+    per = max(3000, 150000 // max(1, len(photos)))
+    px, rg, mks = [], [], []
+    for p, g in zip(photos, gains):
+        flat = p.small.reshape(-1, 3)
+        r = p.reg.reshape(-1) if p.reg is not None else np.full(len(flat), OTHER, np.uint8)
+        x = gain_srgb(flat / 255.0, g)
+        # vùng (da, đồ trắng...) tìm TRÊN TỪNG ẢNH rồi mới gộp: ảnh sáng hơn có váy trắng gần cháy (ám nhạt hơn) vẫn
+        # được nhận là "trắng" cùng với váy trắng của các ảnh khác
+        mk = _masks(color.srgb_to_lab(x), r, loose=True)
+        idx = rng.choice(len(flat), min(per, len(flat)), replace=False)
+        px.append((np.clip(x[idx], 0, 1) * 255 + 0.5).astype(np.uint8))
+        rg.append(r[idx])
+        mks.append({k: v[idx] for k, v in mk.items()})
+    pooled_mk = {k: np.concatenate([m[k] for m in mks]) for k in mks[0]}
+    kq = plan(np.concatenate(px)[None, :, :], np.concatenate(rg)[None, :], ref, strength, log, masks=pooled_mk)
+    grid = _grid()
+    out = {}
+    for p, g in zip(photos, gains):
+        gin = gain_srgb(grid, g)
+        table = np.clip(lut_apply_np(kq.table, gin), 0, 1)
+        st = np.clip(lut_apply_np(kq.skin_table, gin), 0, 1) if kq.skin_table is not None else None
+        sm = np.isin(p.reg, SKIN_SET).astype(np.float32) if (st is not None and p.reg is not None) else None
+        k = KetQua(table, st, sm, {}, list(kq.notes))
+        lab0 = color.srgb_to_lab(p.small.reshape(-1, 3) / 255.0)
+        mk = _masks(lab0, p.reg.reshape(-1) if p.reg is not None else None, loose=True)
+        after = np.asarray(render(Image.fromarray(p.small), k))
+        k.report = report(measure(p.small, p.reg, masks=mk), measure(after, p.reg, masks=mk), ref)
+        ev = float(np.log2(g))
+        if abs(ev) > 0.05:
+            k.notes.append(f"sáng {ev:+.2f} EV cho đều với cả cảnh")
+        k.bao_cao = fmt(k.report)
+        out[p.i] = k
+    return out
+
+
+def _ai(use_ai: bool, log):
     seg, emb = None, None
     if use_ai:
         from . import ai
         seg = ai.Segmenter.get()
-        emb = ai.Embedder.get() if len(ref_paths) > 1 else None
+        emb = ai.Embedder.get()
         log("AI phân vùng (da, áo, trời, cây): " + (f"BẬT ({seg.device})" if seg else "TẮT (không có mô hình)"))
-    segment = segmenter(seg.segment) if seg else None
-    refs = load_refs(ref_paths, segment, emb, log)
+    return (segmenter(seg.segment) if seg else None), emb
+
+
+def load_photos(entries, segment=None, embedder=None, log=print, progress=None, cancel=None) -> list[Anh]:
+    """entries: (i, đường dẫn ảnh, giờ chụp | None). Ảnh lớn thì thu nhỏ để phân tích."""
     out = []
-    for i, (s, d) in enumerate(zip(srcs, dsts)):
+    for n, (i, path, t) in enumerate(entries):
+        if cancel and cancel():
+            break
+        try:
+            im, _ = load_rgb(path)
+            a = small(im)
+            reg = segment(a) if segment else None
+            e = None
+            if embedder is not None:
+                try:
+                    e = embedder.embed([a])[0]
+                except Exception:
+                    e = None
+            out.append(Anh(i, a, reg, t or capture_time(path), e, Path(str(path)).name))
+        except Exception as ex:   # ảnh lỗi: báo, không làm hỏng cả lô
+            log(f"  {Path(str(path)).name}: LỖI đọc ảnh ({ex})")
+        if progress:
+            progress(n + 1, len(entries))
+    return out
+
+
+def analyze(photos: list[Anh], refs: list[Mau], strength: float = 1.0, log=print) -> dict:
+    """Cả lô theo MỘT "gu" (gộp các ảnh mẫu bạn chọn), mỗi cảnh một bộ màu -> {i: KetQua}."""
+    if not photos:
+        return {}
+    ref = merge(refs) if len(refs) > 1 else refs[0]
+    if len(refs) > 1:
+        log(f"Gộp {len(refs)} ảnh mẫu thành một kiểu màu cho cả lô (các ảnh cùng một màu, không mỗi ảnh một kiểu).")
+    scenes = group(photos)
+    n_sc = len(set(scenes))
+    log(f"Chia được {n_sc} cảnh (giờ chụp + nội dung) — mỗi cảnh một bộ màu, từng ảnh chỉ cân lại độ sáng cho đều.")
+    out = {}
+    for sc in sorted(set(scenes)):
+        ps = [p for p, s in zip(photos, scenes) if s == sc]
+        res = plan_scene(ps, ref, strength)
+        for p in ps:
+            k = res[p.i]
+            log(f"  cảnh {sc + 1}: {p.ten}: {k.bao_cao}" + (f" ({'; '.join(k.notes)})" if k.notes else ""))
+        out.update(res)
+    return out
+
+
+def save_plan(path, plans: dict) -> None:
+    arrs, meta = {}, {}
+    for i, k in plans.items():
+        arrs[f"t{i}"] = np.asarray(k.table, np.float32)
+        if k.skin_table is not None:
+            arrs[f"s{i}"] = np.asarray(k.skin_table, np.float32)
+        if k.skin_mask is not None:
+            arrs[f"m{i}"] = (np.clip(k.skin_mask, 0, 1) * 255).astype(np.uint8)
+        meta[str(i)] = {"bao_cao": k.bao_cao or fmt(k.report), "ghi_chu": list(k.notes)}
+    arrs["meta"] = np.frombuffer(json.dumps(meta, ensure_ascii=False).encode("utf-8"), dtype=np.uint8)
+    p = Path(path)
+    tmp = p.with_name(p.stem + ".tmp.npz")
+    np.savez_compressed(tmp, **arrs)
+    tmp.replace(p)
+
+
+def load_plan(path) -> dict:
+    out = {}
+    with np.load(path) as z:
+        meta = json.loads(bytes(z["meta"]).decode("utf-8"))
+        for key, m in meta.items():
+            i = int(key)
+            out[i] = KetQua(np.asarray(z[f"t{i}"], np.float64),
+                            np.asarray(z[f"s{i}"], np.float64) if f"s{i}" in z else None,
+                            (z[f"m{i}"].astype(np.float32) / 255.0) if f"m{i}" in z else None,
+                            {}, list(m.get("ghi_chu") or []), m.get("bao_cao") or "")
+    return out
+
+
+def apply(items, plans: dict, quality: int = 95, log=print, progress=None, cancel=None) -> list[dict]:
+    """items: (i, ảnh vào đầy đủ, ảnh ra). Áp đúng bộ màu đã tính ở bước phân tích."""
+    out = []
+    for n, (i, src, dst) in enumerate(items):
         if cancel and cancel():
             log("Đã dừng theo yêu cầu.")
             break
         try:
-            out.append(copy_one(s, d, refs, segment, emb, strength, quality, log))
+            k = plans.get(i)
+            if k is None:
+                raise RuntimeError("chưa có kết quả phân tích cho ảnh này")
+            im, meta = load_rgb(src)
+            save(render(im, k), dst, meta, quality)
+            out.append({"ra": str(dst), "bao_cao": k.bao_cao, "ghi_chu": k.notes})
         except Exception as e:  # một ảnh lỗi không làm hỏng cả lô
             out.append({"loi": f"{type(e).__name__}: {e}"})
-            log(f"  {Path(str(s)).name}: LỖI {e}")
+            log(f"  {Path(str(src)).name}: LỖI {e}")
         if progress:
-            progress(i + 1, len(srcs))
+            progress(n + 1, len(items))
     return out
+
+
+def run_batch(srcs, dsts, ref_paths, strength=1.0, quality=95, use_ai=True, log=print, progress=None,
+              cancel=None) -> list[dict]:
+    """Chép màu cho cả lô: phân tích cả lô (một "gu", mỗi cảnh một bộ màu) rồi áp srcs[i] -> dsts[i].
+    progress(k, n) sau mỗi ảnh được áp; cancel() -> True thì dừng."""
+    segment, emb = _ai(use_ai, log)
+    refs = load_refs(ref_paths, segment, emb if len(ref_paths) > 1 else None, log)
+    photos = load_photos([(i, s, None) for i, s in enumerate(srcs)], segment, emb, log, cancel=cancel)
+    plans = analyze(photos, refs, strength, log)
+    return apply([(i, s, d) for i, (s, d) in enumerate(zip(srcs, dsts))], plans, quality, log, progress, cancel)
 
 
 def write_json(path, data) -> None:

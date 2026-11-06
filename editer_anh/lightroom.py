@@ -364,19 +364,48 @@ OUT_DIR = "Editer chep mau"     # ảnh chép màu kiểu Evoto: thư mục con 
 
 
 def run_copy_pixels(job: dict, log=print, workers: int = 8, use_ai: bool = True) -> dict:
-    """Chép màu kiểu Evoto: Lightroom đã xuất ảnh gốc (JPEG đầy đủ) -> đổi màu từng điểm ảnh theo ảnh mẫu -> ghi ảnh
-    mới vào thư mục "Editer chep mau" cạnh ảnh gốc (không ghi đè). Ghi tiến độ cho plugin; có file `huy` thì dừng."""
+    """Chép màu kiểu Evoto, 2 bước để CẢ LÔ cùng một màu:
+    - buoc "phan-tich": ảnh nhỏ Lightroom xuất của MỌI ảnh -> chia cảnh, gộp các ảnh mẫu thành một "gu", mỗi cảnh
+      một bộ màu (từng ảnh chỉ cân lại độ sáng) -> ghi kế hoạch vào file `ke_hoach`;
+    - buoc "ap": ảnh đầy đủ (từng đợt) -> áp đúng kế hoạch -> ảnh mới ở "Editer chep mau" cạnh ảnh gốc;
+    - không có buoc: làm cả hai trên chính các ảnh được đưa vào.
+    Ghi tiến độ cho plugin; có file `huy` thì dừng."""
     from . import mauanh
     items = list(job.get("anh") or [])
+    buoc = job.get("buoc") or ""
     refs = [str(p) for p in (job.get("mau_jpg") or [])]
-    if not refs:
+    if buoc != "ap" and not refs:
         return {"ok": False, "loi": "Chưa chọn ảnh mẫu."}
     if not items:
         return {"ok": False, "loi": "Không có ảnh nào để chép màu."}
     strength = max(0.0, min(1.0, float(job.get("do_manh", 100)) / 100.0))
     quality = int(job.get("chat_luong", 95))
-    log(f"Lightroom: chép màu kiểu Evoto từ {len(refs)} ảnh mẫu cho {len(items)} ảnh (độ mạnh {strength:.0%})")
-    srcs, dsts, ok_items, bad = [], [], [], []
+    prog, huy = job.get("tien_do"), job.get("huy")
+
+    def progress(k, n):
+        if prog:
+            mauanh.write_json(prog, {"xong": k, "tong": n, "viec_id": job.get("viec_id")})
+
+    def cancel():
+        return bool(huy) and Path(huy).exists()
+
+    plans = None
+    if buoc in ("phan-tich", ""):
+        log(f"Lightroom: chép màu kiểu Evoto từ {len(refs)} ảnh mẫu cho {len(items)} ảnh (độ mạnh {strength:.0%})")
+        segment, emb = mauanh._ai(use_ai, log)
+        ref_ms = mauanh.load_refs(refs, segment, emb if len(refs) > 1 else None, log)
+        photos = mauanh.load_photos([(it.get("i"), it["vao"], it.get("thoi_gian")) for it in items], segment, emb,
+                                    log, progress if buoc else None, cancel)
+        plans = mauanh.analyze(photos, ref_ms, strength, log)
+        if buoc == "phan-tich":
+            if job.get("ke_hoach"):
+                mauanh.save_plan(job["ke_hoach"], plans)
+            missing = [it.get("i") for it in items if it.get("i") not in plans]
+            return {"ok": True, "phien_ban": __version__, "so_anh": len(plans), "thieu": missing,
+                    "dung_giua_chung": bool(cancel())}
+    if plans is None:
+        plans = mauanh.load_plan(job["ke_hoach"])
+    work, bad = [], []
     taken: set = set()
     for it in items:
         try:   # một ảnh không tạo được thư mục ra (ổ chỉ đọc, đường dẫn lạ...) không làm hỏng cả lô
@@ -388,22 +417,11 @@ def run_copy_pixels(job: dict, log=print, workers: int = 8, use_ai: bool = True)
             log(f"  {Path(str(it.get('goc') or it.get('vao'))).name}: LỖI không tạo được thư mục ảnh ra ({e})")
             continue
         taken.add(str(dst).lower())
-        srcs.append(it["vao"])
-        dsts.append(dst)
-        ok_items.append(it)
-    prog, huy = job.get("tien_do"), job.get("huy")
-
-    def progress(k, n):
-        if prog:
-            mauanh.write_json(prog, {"xong": k, "tong": n, "viec_id": job.get("viec_id")})
-
-    def cancel():
-        return bool(huy) and Path(huy).exists()
-
-    res = mauanh.run_batch(srcs, dsts, refs, strength, quality, use_ai, log, progress, cancel) if srcs else []
-    out = bad + [{"i": it.get("i"), **r} for it, r in zip(ok_items, res)]
+        work.append((it, dst))
+    res = mauanh.apply([(it.get("i"), it["vao"], dst) for it, dst in work], plans, quality, log, progress, cancel)
+    out = bad + [{"i": it.get("i"), **r} for (it, _), r in zip(work, res)]
     n_ok = sum(1 for r in res if "ra" in r)
-    stopped = len(res) < len(ok_items)
+    stopped = len(res) < len(work)
     log(f"XONG: {n_ok} ảnh mới" + (f", {len(out) - n_ok} ảnh lỗi" if len(out) > n_ok else "")
         + (" (đã dừng giữa chừng)" if stopped else ""))
     return {"ok": True, "phien_ban": __version__, "anh": out, "so_anh": n_ok, "dung_giua_chung": stopped}

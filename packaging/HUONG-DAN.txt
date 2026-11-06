@@ -11,6 +11,20 @@ BẠN XEM ẢNH BẰNG LIGHTROOM CLASSIC?  (lý do thường gặp của "không
  lưu thông số). Muốn thấy: trong Lightroom chọn các ảnh -> Metadata -> Read Metadata from Files (Đọc siêu
  dữ liệu từ tệp). Cách tiện hơn: dùng plugin bên dưới, Editer chỉnh thẳng trong catalog.
 
+BẢN 0.15 — CHÉP MÀU KIỂU EVOTO: CẢ LÔ MỘT MÀU, KHÔNG CHÉP CHỒNG (ảnh cháy, mỗi ảnh một màu ở 0.14.2)
+ Nguyên nhân (theo nhật ký bạn gửi):
+ - Lần chạy đó lấy chính ảnh KẾT QUẢ lần trước (VJK_xxxx-editer-2.jpg) làm ảnh vào -> chép màu 2 lần -> cháy. Sau
+   mỗi lần chạy Lightroom chuyển sang bộ sưu tập kết quả, Ctrl+A ở đó là chọn ảnh kết quả.
+ - Mỗi ảnh tự chọn ảnh mẫu riêng và tự khớp riêng -> mỗi ảnh một màu (ảnh vườn theo ảnh mẫu không có đồ trắng
+   -> không cân trắng -> vàng; các ảnh khác theo ảnh mẫu kia -> lạnh hơn).
+ Bản 0.15:
+ - Chọn ảnh kết quả của Editer (thư mục "Editer chep mau") thì tool tự dùng ẢNH GỐC của chúng — không chép chồng.
+ - Nhiều ảnh mẫu được GỘP thành một kiểu màu cho cả lô (chọn các ảnh mẫu cùng một kiểu màu).
+ - Phân tích CẢ LÔ trước (Lightroom xuất ảnh nhỏ), chia cảnh theo giờ chụp + nội dung: mỗi cảnh MỘT bộ màu, từng
+   ảnh chỉ cân lại độ sáng theo da cho đều; rồi mới xuất ảnh đầy đủ (từng đợt 20 ảnh) để áp đúng bộ màu đó.
+ - Đồ trắng dưới đèn vàng: lấy thứ sáng nhất (váy, rèm trắng) làm "trắng", không lấy tường be.
+ Thử: cùng cảnh, 3 ảnh khác khung / lệch sáng -0,5 / 0 / +0,3 EV -> da lệch nhau ΔE 1,0, đồ trắng 0,8.
+
 BẢN 0.14.2 — CHÉP MÀU KIỂU EVOTO: SỬA MÀU DA NHỢT, XÁM (ảnh cận mặt bạn gửi, độ mạnh 80%)
  Nguyên nhân: (1) đường cong sáng tối dồn vùng sáng sát trắng để khớp điểm trắng ảnh mẫu -> trán, mũi, gò má
  trắng bệch, mất màu da; (2) hoa / áo rực làm "gu" giảm độ rực chung -> da xám theo.

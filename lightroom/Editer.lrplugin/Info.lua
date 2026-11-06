@@ -20,5 +20,5 @@ return {
     { title = 'Editer: Chép màu từ ảnh JPG mẫu (thanh trượt Lightroom)…', file = 'ChepMau.lua' },
     { title = 'Editer: Hướng dẫn', file = 'HuongDan.lua' },
   },
-  VERSION = { major = 0, minor = 14, revision = 2, build = 0 },
+  VERSION = { major = 0, minor = 15, revision = 0, build = 0 },
 }
