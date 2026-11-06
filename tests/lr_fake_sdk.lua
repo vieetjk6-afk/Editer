@@ -107,9 +107,16 @@ function catalog:createCollection(name, parent, canReturnPrior)
 end
 function catalog:setActiveSources(src) fake.active = src end
 fake.added = {}
+-- Lightroom trên Windows không phân biệt \ với / và chữ hoa/thường trong đường dẫn
+local function samePath(a, b)
+  local function norm(x)       -- chỉ hạ chữ ASCII: string.lower phụ thuộc locale, có thể làm hỏng UTF-8
+    return (tostring(x):gsub('\\', '/'):gsub('[A-Z]', function(c) return string.char(c:byte() + 32) end))
+  end
+  return norm(a) == norm(b)
+end
 function catalog:findPhotoByPath(path)
-  for _, p in ipairs(fake.added) do if p._path == path then return p end end
-  for _, p in ipairs(self.photos) do if p._path == path then return p end end
+  for _, p in ipairs(fake.added) do if samePath(p._path, path) then return p end end
+  for _, p in ipairs(self.photos) do if samePath(p._path, path) then return p end end
   return nil
 end
 function catalog:addPhoto(path, stackWith, position)
