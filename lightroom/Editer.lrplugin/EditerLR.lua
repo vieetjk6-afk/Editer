@@ -6,6 +6,7 @@ local LrDate = import 'LrDate'
 local LrDialogs = import 'LrDialogs'
 local LrExportSession = import 'LrExportSession'
 local LrFileUtils = import 'LrFileUtils'
+local LrFunctionContext = import 'LrFunctionContext'
 local LrPathUtils = import 'LrPathUtils'
 local LrProgressScope = import 'LrProgressScope'
 local LrTasks = import 'LrTasks'
@@ -594,6 +595,274 @@ function M.chepMau()
   LrDialogs.message(TITLE, msg, 'info')
 end
 
+---------------------------------------------------------------------------- CHÉP MÀU KIỂU EVOTO (xuất ảnh mới)
+-- Đổi màu TRỰC TIẾP trên điểm ảnh (riêng da, áo, cây, trời, nền) như Evoto, không qua thanh trượt Lightroom (một
+-- thanh "Đỏ" đổi cả da lẫn áo đỏ). Lightroom xuất ảnh gốc (đầy đủ độ phân giải, theo thông số hiện tại của ảnh) ->
+-- editer-anh.exe đổi màu -> ảnh JPEG mới ở thư mục "Editer chep mau" cạnh ảnh gốc -> đưa vào Lightroom.
+local OUT_DIR = 'Editer chep mau'
+local COLL_EVOTO = 'Editer – chép màu kiểu Evoto'
+M.CHUNK = 20              -- xuất + đổi màu từng đợt 20 ảnh: không chiếm nhiều ổ đĩa, có ảnh sớm
+
+local function deleteDir(dir)
+  tpcall(function()
+    local files = {}
+    for f in LrFileUtils.files(dir) do files[#files + 1] = f end
+    for _, f in ipairs(files) do deleteFile(f) end
+    LrFileUtils.delete(dir)
+  end)
+end
+
+local function askEvoto()
+  local okv, LrView = pcall(import, 'LrView')
+  local okb, LrBinding = pcall(import, 'LrBinding')
+  if not okv or not okb then return { do_manh = 100, dua_vao = true } end
+  local result
+  LrFunctionContext.callWithContext('Editer-chep-mau-anh', function(context)
+    local props = LrBinding.makePropertyTable(context)
+    props.do_manh = 100
+    props.dua_vao = true
+    local f = LrView.osFactory()
+    local contents = f:column {
+      bind_to_object = props,
+      spacing = f:control_spacing(),
+      f:static_text { title = 'Đổi màu trực tiếp trên ảnh theo ảnh mẫu — riêng da, áo, cây, trời, nền — rồi xuất ảnh '
+        .. 'JPEG mới.\nẢnh gốc và thông số Lightroom của ảnh gốc giữ nguyên.' },
+      f:row {
+        f:static_text { title = 'Độ mạnh:' },
+        f:slider { value = LrView.bind('do_manh'), min = 20, max = 100, integral = true, width = 260 },
+        f:edit_field { value = LrView.bind('do_manh'), min = 20, max = 100, precision = 0, width_in_digits = 4 },
+        f:static_text { title = '%' },
+      },
+      f:checkbox { title = 'Đưa ảnh mới vào Lightroom (bộ sưu tập "' .. COLL_EVOTO .. '")',
+                   value = LrView.bind('dua_vao') },
+      f:static_text { title = 'Ảnh mới: thư mục "' .. OUT_DIR .. '" cạnh ảnh gốc, tên <tên ảnh>-editer.jpg '
+        .. '(chạy lại không ghi đè: -editer-2.jpg...).' },
+    }
+    local r = LrDialogs.presentModalDialog { title = 'Editer: chép màu kiểu Evoto', contents = contents,
+                                             actionVerb = 'Chép màu' }
+    if r == 'ok' then
+      result = { do_manh = math.max(20, math.min(100, tonumber(props.do_manh) or 100)),
+                 dua_vao = props.dua_vao and true or false }
+    end
+  end)
+  return result
+end
+
+-- Xuất ảnh đầy đủ độ phân giải (JPEG chất lượng cao nhất, sRGB, giữ EXIF) theo thông số hiện tại của ảnh.
+local function exportFull(photos, dir)
+  local session = LrExportSession {
+    photosToExport = photos,
+    exportSettings = {
+      LR_export_destinationType = 'specificFolder',
+      LR_export_destinationPathPrefix = dir,
+      LR_export_useSubfolder = false,
+      LR_format = 'JPEG',
+      LR_jpeg_quality = 1.0,
+      LR_export_colorSpace = 'sRGB',
+      LR_size_doConstrain = false,
+      LR_collisionHandling = 'rename',
+      LR_renamingTokensOn = false,
+      LR_outputSharpeningOn = false,
+      LR_minimizeEmbeddedMetadata = false,
+      LR_reimportExportedPhoto = false,
+      LR_useWatermark = false,
+    },
+  }
+  session:doExportOnCurrentTask()
+  local out, failed = {}, {}
+  local i = 0
+  for _, rendition in session:renditions() do
+    i = i + 1
+    local ok, p = rendition:waitForRender()
+    local photo = rendition.photo or photos[i]
+    if ok and p then
+      out[#out + 1] = { photo = photo, path = p }
+    else
+      local name = '?'
+      tpcall(function() name = LrPathUtils.leafName(photo:getRawMetadata('path')) end)
+      failed[#failed + 1] = name .. ': Lightroom không xuất được (' .. tostring(p) .. ')'
+    end
+  end
+  return out, failed
+end
+
+-- Chạy editer-anh.exe (nền), cập nhật thanh tiến độ theo file tien-do; bấm dừng -> ghi file huy.
+local function runHelperProgress(kind, job, progress, offset, total)
+  local cmd = helperCmd()
+  if not cmd then
+    return nil, 'Chưa tìm thấy chương trình Editer.\nMở "Editer Anh.exe" → mục "Dùng trong Lightroom" → bấm '
+      .. '"Cài vào Lightroom" (chỉ cần làm 1 lần), rồi chạy lại.'
+  end
+  local dir = LrPathUtils.child(dataDir(), 'lightroom')
+  if not LrFileUtils.exists(dir) then LrFileUtils.createAllDirectories(dir) end
+  local jobPath = LrPathUtils.child(dir, 'viec-anh.json')
+  local outPath = LrPathUtils.child(dir, 'ket-qua-anh.json')
+  local progPath = LrPathUtils.child(dir, 'tien-do-anh.json')
+  local cancelPath = LrPathUtils.child(dir, 'huy-anh.txt')
+  job.viec_id = newJobId()
+  job.tien_do, job.huy = progPath, cancelPath
+  deleteFile(outPath)
+  deleteFile(progPath)
+  deleteFile(cancelPath)
+  writeFile(jobPath, Core.encode(job))
+  local args = {}
+  for _, a in ipairs(cmd) do args[#args + 1] = a end
+  args[#args + 1] = kind
+  args[#args + 1] = jobPath
+  args[#args + 1] = outPath
+  local state = { done = false }
+  LrTasks.startAsyncTask(function()
+    state.code = LrTasks.execute(Core.commandLine(args, WIN_ENV))
+    state.done = true
+  end)
+  local asked = false
+  while not state.done do
+    LrTasks.sleep(0.5)
+    local s = readFile(progPath)
+    if s then
+      local ok, t = pcall(Core.decode, s)
+      if ok and type(t) == 'table' and t.viec_id == job.viec_id and tonumber(t.xong) then
+        progress:setPortionComplete(offset + t.xong, total)
+        progress:setCaption(string.format('Editer đổi màu %d / %d ảnh...%s', offset + t.xong, total,
+          WIN_ENV and ' (cửa sổ đen là Editer đang chạy — đừng đóng)' or ''))
+      end
+    end
+    if not asked and progress:isCanceled() then
+      writeFile(cancelPath, '1')                  -- Editer làm xong ảnh đang làm rồi dừng
+      asked = true
+    end
+  end
+  local s = readFile(outPath)
+  if not s then
+    return nil, 'Editer không chạy được (mã ' .. tostring(state.code) .. ').\nXem nhật ký: ' .. logPath()
+  end
+  local ok, res = pcall(Core.decode, s)
+  if not ok or type(res) ~= 'table' then return nil, 'Kết quả Editer bị lỗi: ' .. tostring(res) end
+  if res.viec_id ~= job.viec_id then
+    return nil, 'Editer không chạy được (không có kết quả mới, mã ' .. tostring(state.code) .. ').\nXem nhật ký: '
+      .. logPath()
+  end
+  if not res.ok then return nil, tostring(res.loi or 'Editer báo lỗi') .. '\n\nNhật ký: ' .. logPath() end
+  return res
+end
+
+function M.chepMauAnh()
+  local catalog = LrApplication.activeCatalog()
+  local photos = targetPhotos(catalog)
+  local list, video = {}, 0
+  for _, p in ipairs(photos) do
+    local okf, fmt = tpcall(function() return p:getRawMetadata('fileFormat') end)
+    if okf and fmt and string.upper(tostring(fmt)) == 'VIDEO' then video = video + 1 else list[#list + 1] = p end
+  end
+  if #list < 1 then
+    LrDialogs.message(TITLE, 'Chọn các ảnh cần chép màu (hoặc Ctrl+A cả thư mục) rồi chạy lại.', 'info')
+    return
+  end
+  local jpgs = LrDialogs.runOpenPanel {
+    title = 'Editer: chọn ảnh JPG mẫu (màu bạn muốn theo) — chọn được nhiều ảnh, mỗi kiểu cảnh 1 ảnh càng tốt',
+    canChooseFiles = true, canChooseDirectories = false, allowsMultipleSelection = true,
+    fileTypes = { 'jpg', 'jpeg', 'png', 'tif', 'tiff' },
+  }
+  if not jpgs or #jpgs == 0 then return end
+  local opt = askEvoto()
+  if not opt then return end
+  if not helperCmd() then
+    LrDialogs.message(TITLE, 'Chưa tìm thấy chương trình Editer.\nMở "Editer Anh.exe" → mục "Dùng trong Lightroom" '
+      .. '→ bấm "Cài vào Lightroom" (chỉ cần làm 1 lần), rồi chạy lại.', 'critical')
+    return
+  end
+  local work = LrPathUtils.child(LrPathUtils.child(dataDir(), 'lightroom'), 'xuat-anh')
+  if LrFileUtils.exists(work) then
+    tpcall(function()                             -- dọn ảnh xuất tạm của lần trước (bị tắt giữa chừng)
+      local dirs = {}
+      for d in LrFileUtils.directoryEntries and LrFileUtils.directoryEntries(work) or function() end do
+        dirs[#dirs + 1] = d
+      end
+      for _, d in ipairs(dirs) do deleteDir(d) end
+    end)
+  end
+  local progress = LrProgressScope { title = 'Editer: chép màu kiểu Evoto' }
+  progress:setCancelable(true)
+  local made, failed, stopped = {}, {}, false
+  local CHUNK = M.CHUNK
+  for c0 = 1, #list, CHUNK do
+    if progress:isCanceled() then stopped = true break end
+    local chunk = {}
+    for i = c0, math.min(#list, c0 + CHUNK - 1) do chunk[#chunk + 1] = list[i] end
+    progress:setCaption(string.format('Lightroom xuất ảnh %d-%d / %d (đầy đủ độ phân giải)...', c0,
+      c0 + #chunk - 1, #list))
+    local dir = LrPathUtils.child(work, tostring(c0))
+    LrFileUtils.createAllDirectories(dir)
+    local exported, xfail = exportFull(chunk, dir)
+    for _, e in ipairs(xfail) do failed[#failed + 1] = e end
+    local anh = {}
+    for i, e in ipairs(exported) do
+      local goc = e.photo:getRawMetadata('path')
+      anh[#anh + 1] = { i = i - 1, vao = e.path, goc = goc,
+                        thu_muc = LrPathUtils.child(LrPathUtils.parent(goc), OUT_DIR) }
+    end
+    if #anh > 0 then
+      local res, err = runHelperProgress('lr-chep-mau-anh', { mau_jpg = jpgs, do_manh = opt.do_manh,
+        chat_luong = 95, anh = anh, ai = true }, progress, c0 - 1, #list)
+      if not res then
+        deleteDir(dir)
+        progress:done()
+        LrDialogs.message(TITLE, err, 'critical')
+        return
+      end
+      for _, d in ipairs(res.anh or {}) do
+        local e = exported[(d.i or -1) + 1]
+        if e and d.ra then
+          made[#made + 1] = { path = d.ra, src = e.photo }
+        elseif e then
+          failed[#failed + 1] = LrPathUtils.leafName(e.path) .. ': ' .. tostring(d.loi)
+        end
+      end
+      if res.dung_giua_chung then stopped = true end
+    end
+    deleteDir(dir)
+    if stopped then break end
+  end
+  local imported, coll = 0, nil
+  if opt.dua_vao and #made > 0 then
+    progress:setCaption('Đưa ảnh mới vào Lightroom...')
+    catalog:withWriteAccessDo('Editer: thêm ảnh chép màu kiểu Evoto', function()
+      coll = catalog:createCollection(COLL_EVOTO, nil, true)
+      if coll then coll:removePhotos(coll:getPhotos()) end   -- bộ sưu tập chỉ giữ ảnh của lần chạy này
+      local add = {}
+      for _, n in ipairs(made) do
+        local p = catalog:findPhotoByPath(n.path)
+        if not p then
+          local ok, r = tpcall(function() return catalog:addPhoto(n.path) end)
+          if ok then p = r end
+        end
+        if p then add[#add + 1] = p end
+      end
+      imported = #add
+      if coll and #add > 0 then coll:addPhotos(add) end
+    end, { timeout = 60 })
+    if coll and imported > 0 then tpcall(function() catalog:setActiveSources { coll } end) end
+  end
+  progress:done()
+  local msg
+  if #made == 0 then
+    msg = 'Chưa chép màu được ảnh nào.'
+  else
+    msg = string.format('Đã chép màu kiểu Evoto cho %d ảnh (độ mạnh %d%%).\nẢnh mới: thư mục "%s" cạnh ảnh gốc, '
+      .. 'tên <tên ảnh>-editer.jpg. Ảnh gốc giữ nguyên.', #made, opt.do_manh, OUT_DIR)
+    if imported > 0 then
+      msg = msg .. string.format('\nĐã đưa %d ảnh mới vào bộ sưu tập "%s" để xem.', imported, COLL_EVOTO)
+    end
+    msg = msg .. '\n\nChưa ưng độ đậm nhạt: chạy lại với độ mạnh khác (ảnh mới thêm -2, -3..., không ghi đè).'
+  end
+  if stopped then msg = msg .. '\n\n(Đã dừng giữa chừng theo yêu cầu.)' end
+  if #failed > 0 then
+    msg = msg .. string.format('\n\nKhông làm được %d ảnh: %s', #failed, Core.cut(table.concat(failed, '; '), 300))
+  end
+  if video > 0 then msg = msg .. string.format('\n\n(Bỏ qua %d video.)', video) end
+  LrDialogs.message(TITLE, msg, #made > 0 and 'info' or 'critical')
+end
+
 function M.huongDan()
   LrDialogs.message('Editer trong Lightroom Classic',
     'Bạn chỉnh tay 1 ảnh mỗi cảnh, Editer làm phần lặp lại cho cả cảnh — ngay trong catalog đang mở.\n\n'
@@ -604,9 +873,12 @@ function M.huongDan()
     .. 'Mỗi ảnh lấy ĐÚNG thông số ảnh bạn chỉnh cùng cảnh; nhiệt độ màu giữ như ảnh mẫu (chỉ dịch khi ánh '
     .. 'sáng đổi thật); độ sáng cân theo da người + ISO / tốc độ / khẩu. Không mang sang: khung cắt, phối cảnh, '
     .. 'xoá vết, cọ tô, gradient. Ảnh bạn đã chỉnh không bị đụng tới. Chỉnh thêm rồi chạy lại bước 2 bao nhiêu '
-    .. 'lần cũng được.\n\nCHÉP MÀU TỪ ẢNH JPG MẪU: chọn ảnh (Ctrl+A) → "Editer: Chép màu từ ảnh JPG mẫu…" → chọn 1 hoặc vài '
-    .. 'ảnh JPG có màu bạn muốn. Lightroom dựng thử vài ảnh đại diện để Editer đo và sửa dần cho giống mẫu, rồi áp '
-    .. 'cho cả lô. Cách chắc ăn nhất vẫn là: chép màu xong, chỉnh lại 1 ảnh mỗi cảnh cho ưng rồi chạy bước 2.'
+    .. 'lần cũng được.\n\nCHÉP MÀU KIỂU EVOTO: chọn ảnh (Ctrl+A) → "Editer: Chép màu kiểu Evoto (xuất ảnh mới)…" → '
+    .. 'chọn ảnh JPG mẫu → chọn độ mạnh. Editer đổi màu trực tiếp trên ảnh (riêng da, áo, cây, trời, nền), ghi ảnh '
+    .. 'JPEG mới vào thư mục "' .. OUT_DIR .. '" cạnh ảnh gốc và đưa vào bộ sưu tập "' .. COLL_EVOTO .. '". Ảnh gốc '
+    .. 'giữ nguyên.\n\nCHÉP MÀU BẰNG THANH TRƯỢT: "Editer: Chép màu từ ảnh JPG mẫu (thanh trượt Lightroom)…" — chỉnh '
+    .. 'thẳng thông số trong catalog (sửa tiếp được) nhưng kém hơn kiểu Evoto. Chép màu xong, chỉnh lại 1 ảnh mỗi '
+    .. 'cảnh cho ưng rồi chạy bước 2.'
     .. '\n\nNhật ký: ' .. logPath(), 'info')
 end
 

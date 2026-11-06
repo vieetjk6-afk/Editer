@@ -360,6 +360,48 @@ def run_copy(job: dict, log=print, workers: int = 8, use_ai: bool = True) -> dic
             "dai_dien": [by_path[str(t)] for t in info.get("tep_dai_dien", []) if str(t) in by_path]}
 
 
+OUT_DIR = "Editer chep mau"     # ảnh chép màu kiểu Evoto: thư mục con cạnh ảnh gốc
+
+
+def run_copy_pixels(job: dict, log=print, workers: int = 8, use_ai: bool = True) -> dict:
+    """Chép màu kiểu Evoto: Lightroom đã xuất ảnh gốc (JPEG đầy đủ) -> đổi màu từng điểm ảnh theo ảnh mẫu -> ghi ảnh
+    mới vào thư mục "Editer chep mau" cạnh ảnh gốc (không ghi đè). Ghi tiến độ cho plugin; có file `huy` thì dừng."""
+    from . import mauanh
+    items = list(job.get("anh") or [])
+    refs = [str(p) for p in (job.get("mau_jpg") or [])]
+    if not refs:
+        return {"ok": False, "loi": "Chưa chọn ảnh mẫu."}
+    if not items:
+        return {"ok": False, "loi": "Không có ảnh nào để chép màu."}
+    strength = max(0.0, min(1.0, float(job.get("do_manh", 100)) / 100.0))
+    quality = int(job.get("chat_luong", 95))
+    log(f"Lightroom: chép màu kiểu Evoto từ {len(refs)} ảnh mẫu cho {len(items)} ảnh (độ mạnh {strength:.0%})")
+    srcs, dsts = [], []
+    taken: set = set()
+    for it in items:
+        folder = Path(it.get("thu_muc") or Path(it["vao"]).parent)
+        folder.mkdir(parents=True, exist_ok=True)
+        dst = mauanh.out_name(folder, Path(it.get("goc") or it["vao"]), taken)
+        taken.add(str(dst).lower())
+        srcs.append(it["vao"])
+        dsts.append(dst)
+    prog, huy = job.get("tien_do"), job.get("huy")
+
+    def progress(k, n):
+        if prog:
+            mauanh.write_json(prog, {"xong": k, "tong": n, "viec_id": job.get("viec_id")})
+
+    def cancel():
+        return bool(huy) and Path(huy).exists()
+
+    res = mauanh.run_batch(srcs, dsts, refs, strength, quality, use_ai, log, progress, cancel)
+    out = [{"i": it.get("i"), **r} for it, r in zip(items, res)]
+    n_ok = sum(1 for r in res if "ra" in r)
+    log(f"XONG: {n_ok} ảnh mới" + (f", {len(res) - n_ok} ảnh lỗi" if len(res) > n_ok else "")
+        + (" (đã dừng giữa chừng)" if len(res) < len(items) else ""))
+    return {"ok": True, "phien_ban": __version__, "anh": out, "so_anh": n_ok, "dung_giua_chung": len(res) < len(items)}
+
+
 def run_job(kind: str, job_path: str, out_path: str, log=print, workers: int = 8, use_ai: bool = True) -> dict:
     """Đọc job.json, chạy, ghi out.json. Lỗi cũng ghi vào out.json để plugin báo cho bạn."""
     out = Path(out_path)
@@ -367,7 +409,7 @@ def run_job(kind: str, job_path: str, out_path: str, log=print, workers: int = 8
     try:
         job = json.loads(Path(job_path).read_text(encoding="utf-8-sig"))
         use_ai = use_ai and job.get("ai", True)
-        fn = {"canh": run_scenes, "chep-mau": run_copy}.get(kind, run_sync)
+        fn = {"canh": run_scenes, "chep-mau": run_copy, "chep-mau-anh": run_copy_pixels}.get(kind, run_sync)
         res = fn(job, log, workers, use_ai)
     except SystemExit as e:
         res = {"ok": False, "loi": str(e.code if e.code is not None else "dừng")}

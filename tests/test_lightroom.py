@@ -457,6 +457,98 @@ def test_copy(tmp: Path) -> None:
     print("[lightroom] chép màu xong chỉnh tay 1 ảnh -> bước 2 đồng bộ 4 ảnh còn lại theo ảnh đó: OK")
 
 
+def test_copy_pixels(tmp: Path) -> None:
+    """Chép màu kiểu Evoto trong Lightroom giả: Lightroom xuất ảnh đầy đủ độ phân giải theo thông số hiện tại ->
+    editer-anh đổi màu từng điểm ảnh -> ảnh mới "<tên>-editer.jpg" ở thư mục "Editer chep mau" cạnh ảnh gốc, đưa vào
+    bộ sưu tập; ảnh gốc / thông số giữ nguyên; xuất từng đợt; chạy lại không ghi đè; bấm Huỷ ở hộp thoại thì thôi."""
+    import time
+
+    import numpy as np
+    from PIL import Image
+    from test_look import render as sim_render, scene
+    from editer_anh.look import Look, Shot
+    folders = [tmp / "evoto" / "le", tmp / "evoto" / "vuon"]
+    paths = []
+    for k, f in enumerate(folders):
+        f.mkdir(parents=True)
+        for i in range(2):
+            p = f / f"IMG_{k}{i}.dng"
+            make_dng(p, 3600 + 400 * k, 4, seed=30 + 2 * k + i, exposure=0.6)
+            paths.append(p)
+    ref_img, _ = scene(61)
+    Image.fromarray(sim_render(ref_img, Look(curve=np.array([20.0, 66, 110, 168, 212, 246])),
+                               Shot(1e6 / 5300, 4.0, 0.3))).save(tmp / "mau-evoto.jpg", quality=95)
+    procs = {}
+
+    def py_spawn(cmd):
+        procs[len(procs) + 1] = subprocess.Popen(split_cmd(cmd), env={**os.environ, "PYTHONUTF8": "1"})
+        return len(procs)
+
+    def py_render(path, settings_json, out, size):
+        """Lightroom giả xuất ảnh: ảnh xem trước trong DNG, đầy đủ kích thước khi size = 0, có EXIF."""
+        assert int(size or 0) == 0, "chép màu kiểu Evoto phải xuất ảnh đầy đủ độ phân giải"
+        ph = raw.load(path)
+        im = Image.fromarray(ph.preview)
+        ex = Image.Exif()
+        ex[0x0110] = "NIKON Z5_2"
+        im.save(out, quality=100, exif=ex.tobytes())
+
+    lua = lua_runtime()
+    g = lua.globals()
+    g.FAKE_HOME = str(Path.home())
+    g.py_spawn = py_spawn
+    g.py_poll = lambda h: procs[h].poll()
+    g.py_sleep = lambda t: time.sleep(float(t))
+    g.py_render = py_render
+    g.py_execute = lambda cmd: subprocess.run(split_cmd(cmd)).returncode
+    fs_helpers(lua)
+    g._PLUGIN = lua.table_from({"path": str(PLUGIN)})
+    lua.execute(f"package.path = '{PLUGIN.as_posix()}/?.lua;{(ROOT / 'tests').as_posix()}/?.lua;' .. package.path")
+    fake = lua.eval("require('lr_fake_sdk')")
+    g.WIN_ENV = os.name == "nt"
+    tab = lua.eval("function(s) return require('EditerCore').decode(s) end")
+    photos = []
+    for i, p in enumerate(paths):
+        photos.append(lua.eval("function(f, id, path, s) return f.photo(id, path, s) end")(
+            fake, 500 + i, str(p), tab(json.dumps(lr_settings(5200, 4, 0.2, 10)))))
+    lua.eval("function(c, ps) for i, p in ipairs(ps) do c.photos[i] = p end end")(fake.catalog, lua.table_from(photos))
+    before = [json.loads(lua.eval("function(p) return require('EditerCore').encode(p._settings) end")(ph)) for ph in photos]
+    fake.open_panel_result = lua.table_from([str(tmp / "mau-evoto.jpg")])
+    # bấm Huỷ ở hộp thoại độ mạnh: không xuất, không ghi gì
+    fake.modal_answer = "cancel"
+    n_msg = len(list(fake.messages.values()))
+    lua.execute("require('EditerLR').chepMauAnh()")
+    assert not fake.exported and len(list(fake.messages.values())) == n_msg
+    fake.modal_answer = "ok"
+    lua.execute("require('EditerLR').CHUNK = 3")                     # 4 ảnh -> 2 đợt xuất + đổi màu
+    lua.execute("require('EditerLR').chepMauAnh()")
+    msg = [m.msg for m in fake.messages.values()][-1]
+    assert "Đã chép màu kiểu Evoto cho 4 ảnh (độ mạnh 100%)" in msg and "Đã đưa 4 ảnh mới" in msg, msg
+    assert fake.modal.title == "Editer: chép màu kiểu Evoto" and fake.exports == 2 and fake.exported == 4
+    outs = [f / "Editer chep mau" / f"{p.stem}-editer.jpg" for f in folders for p in sorted(f.glob("*.dng"))]
+    for o in outs:
+        assert o.exists(), o
+        with Image.open(o) as im:
+            assert im.getexif().get(0x0110) == "NIKON Z5_2", "giữ EXIF của ảnh"
+    coll = lua.eval("function(f) return f.collections['Editer – chép màu kiểu Evoto'] end")(fake)
+    got = sorted(str(Path(x._path)) for x in coll._photos.values())
+    assert got == sorted(str(o) for o in outs), got
+    assert fake.active is not None
+    after = [json.loads(lua.eval("function(p) return require('EditerCore').encode(p._settings) end")(ph)) for ph in photos]
+    assert after == before, "ảnh gốc: thông số Lightroom giữ nguyên"
+    work = Path.home() / "Editer" / "lightroom" / "xuat-anh"
+    assert not any(work.rglob("*.jpg")), "phải xoá ảnh xuất tạm"
+    # chạy lại (độ mạnh khác): ảnh mới -editer-2.jpg, không ghi đè; bộ sưu tập chỉ còn ảnh của lần này
+    lua.execute("require('EditerLR').chepMauAnh()")
+    msg = [m.msg for m in fake.messages.values()][-1]
+    assert "Đã chép màu kiểu Evoto cho 4 ảnh" in msg, msg
+    for o in outs:
+        assert o.with_name(o.stem + "-2.jpg").exists()
+    got = sorted(Path(x._path).name for x in coll._photos.values())
+    assert all(n.endswith("-editer-2.jpg") for n in got) and len(got) == 4, got
+    print("[lightroom] chép màu kiểu Evoto: xuất 2 đợt, 4 ảnh mới + bộ sưu tập, ảnh gốc giữ nguyên, không ghi đè: OK")
+
+
 def test_install(tmp: Path) -> None:
     os.environ["APPDATA"] = str(tmp / "appdata")
     lightroom.modules_dir().parent.mkdir(parents=True)          # có Lightroom
@@ -483,6 +575,7 @@ def main(tmp: Path) -> None:
     test_core()
     test_plugin(tmp, paths)
     test_copy(tmp)
+    test_copy_pixels(tmp)
     test_install(tmp)
 
 

@@ -11,6 +11,26 @@ BẠN XEM ẢNH BẰNG LIGHTROOM CLASSIC?  (lý do thường gặp của "không
  lưu thông số). Muốn thấy: trong Lightroom chọn các ảnh -> Metadata -> Read Metadata from Files (Đọc siêu
  dữ liệu từ tệp). Cách tiện hơn: dùng plugin bên dưới, Editer chỉnh thẳng trong catalog.
 
+MỚI Ở BẢN 0.14 — CHÉP MÀU KIỂU EVOTO (đổi màu trực tiếp trên ảnh, xuất ảnh mới)
+ Trong Lightroom: chọn ảnh (Ctrl+A) -> Library -> Plug-in Extras -> "Editer: Chép màu kiểu Evoto (xuất ảnh
+ mới)…" -> chọn 1 hoặc vài ảnh JPG mẫu (mỗi kiểu cảnh 1 ảnh càng tốt) -> chọn độ mạnh 20-100% (như thanh
+ trượt của Evoto) -> Chép màu.
+ - Lightroom xuất ảnh gốc đầy đủ độ phân giải theo thông số hiện tại của ảnh (phơi sáng, cắt khung... của bạn
+   giữ nguyên), Editer đổi màu TRỰC TIẾP trên ảnh, riêng từng vùng:
+   da theo da ảnh mẫu; đồ trắng theo trắng mẫu; cây theo cây; trời theo trời (trời mây không bị ép thành trời
+   xanh); áo GIỮ tông màu thật (áo mẫu cùng tông thì chỉ sáng / đậm theo một phần); hoa, đồ trang trí mà ảnh
+   mẫu không có thì chỉ theo "gu" chung (cân bằng trắng, sáng tối, độ rực), không bị nhuộm.
+ - Ảnh mới: thư mục "Editer chep mau" cạnh ảnh gốc, tên <tên ảnh>-editer.jpg (JPEG chất lượng 95, giữ EXIF),
+   đưa vào bộ sưu tập "Editer – chép màu kiểu Evoto". Chạy lại không ghi đè (-editer-2.jpg...). Ảnh gốc và
+   thông số Lightroom của ảnh gốc giữ nguyên. Bấm X ở thanh tiến độ để dừng (làm xong ảnh đang làm).
+ - Vì sao tốt hơn cách cũ: cách cũ chỉnh bằng thanh trượt Lightroom, mà một thanh "Đỏ" đổi cả da lẫn áo đỏ
+   (da cam, áo chói ở 0.13.0). Cách cũ vẫn còn: "Editer: Chép màu từ ảnh JPG mẫu (thanh trượt Lightroom)…".
+ - Ảnh JPG đã xuất sẵn (ngoài Lightroom): editer-anh.exe chep-mau-anh <thư mục ảnh> --mau <ảnh mẫu.jpg>
+   [--do-manh 80] -> ảnh mới ở thư mục "Editer chep mau".
+ Thử trên ảnh chụp màn hình kết quả cũ của bạn với ảnh mẫu K.Studio (ảnh nhỏ, AI phân vùng thay thế): da lệch
+ mẫu ΔE 3-24 -> dưới 1,5; đồ trắng -> dưới 0,5; áo giữ tông màu. Chưa thử trên file RAW thật của bạn: chưa ưng
+ thì gửi ảnh chụp màn hình + nhat-ky.txt.
+
 BẢN 0.13.1 — QUAY LẠI CÁCH CHÉP MÀU AN TOÀN CỦA 0.12.2
  Bản 0.13.0 cho áo và "màu khác" (hoa, đồ trang trí) theo ảnh mẫu. Trên ảnh thật của bạn, điều đó làm da cam,
  loang và áo đỏ chói (da và màu đỏ dùng chung thanh trượt Đỏ/Cam trong Lightroom), trắng cũng lệch hơn ảnh

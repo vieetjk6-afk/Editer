@@ -9,14 +9,16 @@ return {
   LrLibraryMenuItems = {
     { title = 'Editer: 1. Chọn ảnh mẫu mỗi cảnh', file = 'Buoc1.lua' },
     { title = 'Editer: 2. Đồng bộ cả cảnh theo ảnh bạn chỉnh', file = 'Buoc2.lua' },
-    { title = 'Editer: Chép màu từ ảnh JPG mẫu…', file = 'ChepMau.lua' },
+    { title = 'Editer: Chép màu kiểu Evoto (xuất ảnh mới)…', file = 'ChepMauAnh.lua' },
+    { title = 'Editer: Chép màu từ ảnh JPG mẫu (thanh trượt Lightroom)…', file = 'ChepMau.lua' },
     { title = 'Editer: Hướng dẫn', file = 'HuongDan.lua' },
   },
   LrExportMenuItems = {
     { title = 'Editer: 1. Chọn ảnh mẫu mỗi cảnh', file = 'Buoc1.lua' },
     { title = 'Editer: 2. Đồng bộ cả cảnh theo ảnh bạn chỉnh', file = 'Buoc2.lua' },
-    { title = 'Editer: Chép màu từ ảnh JPG mẫu…', file = 'ChepMau.lua' },
+    { title = 'Editer: Chép màu kiểu Evoto (xuất ảnh mới)…', file = 'ChepMauAnh.lua' },
+    { title = 'Editer: Chép màu từ ảnh JPG mẫu (thanh trượt Lightroom)…', file = 'ChepMau.lua' },
     { title = 'Editer: Hướng dẫn', file = 'HuongDan.lua' },
   },
-  VERSION = { major = 0, minor = 13, revision = 1, build = 0 },
+  VERSION = { major = 0, minor = 14, revision = 0, build = 0 },
 }

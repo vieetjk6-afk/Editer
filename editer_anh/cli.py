@@ -337,11 +337,40 @@ def cmd_dong_bo(a) -> dict:
 def cmd_lr(a) -> dict:
     """Plugin Lightroom gọi: lr-canh / lr-dong-bo <job.json> <out.json>."""
     from . import lightroom
-    kind = {"lr-canh": "canh", "lr-chep-mau": "chep-mau"}.get(a.lenh, "dong-bo")
+    kind = {"lr-canh": "canh", "lr-chep-mau": "chep-mau", "lr-chep-mau-anh": "chep-mau-anh"}.get(a.lenh, "dong-bo")
     res = lightroom.run_job(kind, a.job, a.ra, _log, a.luong, use_ai=not a.khong_ai)
     if not res.get("ok"):
         raise SystemExit(1)
     return res
+
+
+def cmd_chep_mau_anh(a) -> dict:
+    """Chép màu kiểu Evoto cho ảnh JPG / PNG / TIFF (vd ảnh xuất từ Lightroom): ghi ảnh mới, không sửa ảnh gốc."""
+    from . import mauanh, raw
+    files = []
+    for x in a.anh:
+        p = Path(x)
+        if p.is_dir():
+            files += sorted(q for q in p.iterdir() if q.is_file() and q.suffix.lower() in raw.JPG_EXT
+                            and not q.stem.endswith("-editer") and "-editer-" not in q.stem)
+        elif p.is_file():
+            files.append(p)
+    if not files:
+        raise SystemExit("Không thấy ảnh JPG / PNG / TIFF nào.")
+    taken: set = set()
+    dsts = []
+    for f in files:
+        folder = Path(a.ra) if a.ra else f.parent / "Editer chep mau"
+        folder.mkdir(parents=True, exist_ok=True)
+        d = mauanh.out_name(folder, f, taken)
+        taken.add(str(d).lower())
+        dsts.append(d)
+    _log(f"Chép màu kiểu Evoto từ {len(a.mau)} ảnh mẫu cho {len(files)} ảnh (độ mạnh {a.do_manh}%)")
+    res = mauanh.run_batch(files, dsts, a.mau, max(0, min(100, a.do_manh)) / 100.0, a.chat_luong,
+                           not a.khong_ai, _log)
+    n = sum(1 for r in res if "ra" in r)
+    _log(f"XONG: {n} ảnh mới trong {dsts[0].parent if dsts else ''}")
+    return {"anh": res}
 
 
 def cmd_lr_cai(a) -> dict:
@@ -533,13 +562,23 @@ def main(argv=None) -> None:
 
     for name, hlp in (("lr-dong-bo", "(plugin Lightroom gọi) đồng bộ trong catalog"),
                       ("lr-canh", "(plugin Lightroom gọi) chia cảnh, chọn ảnh mẫu"),
-                      ("lr-chep-mau", "(plugin Lightroom gọi) chép màu từ ảnh JPG mẫu")):
+                      ("lr-chep-mau", "(plugin Lightroom gọi) chép màu từ ảnh JPG mẫu"),
+                      ("lr-chep-mau-anh", "(plugin Lightroom gọi) chép màu kiểu Evoto, xuất ảnh mới")):
         q = sub.add_parser(name, help=hlp)
         q.add_argument("job")
         q.add_argument("ra")
         q.add_argument("--khong-ai", action="store_true")
         q.add_argument("--luong", type=int, default=min(8, os.cpu_count() or 4))
         q.set_defaults(func=cmd_lr)
+    e = sub.add_parser("chep-mau-anh", help="chép màu kiểu Evoto: đổi màu trực tiếp trên ảnh JPG/TIFF, xuất ảnh mới")
+    e.add_argument("anh", nargs="+", help="ảnh JPG / PNG / TIFF hoặc thư mục")
+    e.add_argument("--mau", nargs="+", required=True, help="ảnh mẫu (màu bạn muốn theo)")
+    e.add_argument("--do-manh", type=int, default=100, help="độ mạnh 0-100 (mặc định 100)")
+    e.add_argument("--ra", help="thư mục ảnh ra (mặc định: thư mục 'Editer chep mau' cạnh ảnh)")
+    e.add_argument("--chat-luong", type=int, default=95, help="chất lượng JPEG (mặc định 95)")
+    e.add_argument("--khong-ai", action="store_true", help="không dùng AI phân vùng (chỉ chỉnh chung cả ảnh)")
+    e.set_defaults(func=cmd_chep_mau_anh)
+
     li = sub.add_parser("lr-cai", help="cài plugin Editer vào Lightroom Classic")
     li.set_defaults(func=cmd_lr_cai)
 

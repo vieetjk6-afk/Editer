@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.12)
+## Editer Ảnh (bản 0.14)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
@@ -63,6 +63,14 @@ Có 4 chức năng:
      áp thông số thử vào ảnh đại diện, `LrExportSession` xuất JPEG, ghi `xong-N.json` kèm As Shot thật. Xong thì
      trả ảnh đại diện về thông số gốc và áp kết quả cho cả lô (`to_lr`: không đổi profile / ống kính / PV;
      mask "Editer - …" gộp với mask sẵn có).
+
+     **0.14 — chép màu kiểu Evoto** (`editer_anh/mauanh.py`, `lr-chep-mau-anh`, `chep-mau-anh`): đổi màu
+     trực tiếp trên điểm ảnh thay vì thanh trượt Lightroom. Mỗi ảnh: AI phân vùng; "gu" chung của ảnh mẫu (cân
+     bằng trắng theo đồ trắng, đường cong sáng tối neo theo da, độ rực, ám màu vùng tối/sáng); vùng có ở cả hai
+     ảnh (da, cây, trời cùng kiểu) khớp phân bố màu (MKL); áo giữ tông; gom thành một bảng màu 3D 17³ trơn
+     (bình phương tối thiểu có Laplacian, ngoài dữ liệu theo "gu"), da thêm lớp riêng qua mặt nạ mềm; áp lên ảnh
+     đầy đủ bằng Pillow `Color3DLUT`, giữ EXIF/ICC. Plugin xuất ảnh đầy đủ (`LrExportSession`, từng đợt 20 ảnh),
+     ảnh mới vào thư mục "Editer chep mau" + bộ sưu tập; tiến độ / dừng qua file `tien-do-anh.json` / `huy-anh.txt`.
 
      Bước 1 `lr-canh` chia cảnh và đưa mỗi cảnh 1 ảnh vào bộ sưu tập để bạn chỉnh. `lr-cai` chép plugin vào
      `%APPDATA%\Adobe\Lightroom\Modules`, nơi Lightroom tự nạp. Mỗi lần mở giao diện, `lightroom.json` được

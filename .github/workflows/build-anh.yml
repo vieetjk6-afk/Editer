@@ -48,6 +48,7 @@ jobs:
           python -c "import onnxruntime as o; print('onnxruntime', o.__version__, o.get_available_providers())"
           python tests/test_ai.py
           python tests/test_look.py
+          python tests/test_mauanh.py
           python tests/test_ps.py
           python tests/test_gui_api.py
           python tests/test_capnhat.py
@@ -93,7 +94,7 @@ jobs:
           if ($out -notmatch "XONG: đồng bộ 29 ảnh") { throw "bản .exe không đồng bộ được" }
           if ($out -notmatch "AI tìm da người") { throw "bản .exe không bật được AI tìm da người" }
 
-      - name: Thử bản .exe cho Lightroom (lr-dong-bo, lr-chep-mau, lr-cai)
+      - name: Thử bản .exe cho Lightroom (lr-dong-bo, lr-chep-mau, lr-chep-mau-anh, lr-cai)
         run: |
           $files = Get-ChildItem "$env:RUNNER_TEMP\e2e\moi" -Filter *.dng | Sort-Object Name
           $anh = @()
@@ -116,6 +117,19 @@ jobs:
           $c = Get-Content "$env:RUNNER_TEMP\lr-chep-kq.json" -Raw -Encoding utf8 | ConvertFrom-Json
           Write-Output ("lr-chep-mau: ok=" + $c.ok + ", " + $c.anh.Count + " ảnh; " + $c.bao_cao)
           if (-not $c.ok -or $c.anh.Count -ne 30) { throw "lr-chep-mau trả kết quả sai" }
+          $x = "$env:RUNNER_TEMP\evoto"
+          New-Item -ItemType Directory -Force $x | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\e2e\mau.jpg" "$x\a.jpg"
+          Copy-Item "$env:RUNNER_TEMP\e2e\mau.jpg" "$x\b.jpg"
+          $ja = @(@{ i = 0; vao = "$x\a.jpg"; goc = "$x\Ảnh cưới Đức.NEF"; thu_muc = "$x\Editer chep mau" },
+                  @{ i = 1; vao = "$x\b.jpg"; goc = "$x\b.NEF"; thu_muc = "$x\Editer chep mau" })
+          @{ ai = $true; do_manh = 80; anh = $ja; mau_jpg = @("$env:RUNNER_TEMP\e2e\mau.jpg") } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\lr-anh.json"
+          dist/editer-anh/editer-anh.exe lr-chep-mau-anh "$env:RUNNER_TEMP\lr-anh.json" "$env:RUNNER_TEMP\lr-anh-kq.json"
+          $e = Get-Content "$env:RUNNER_TEMP\lr-anh-kq.json" -Raw -Encoding utf8 | ConvertFrom-Json
+          Write-Output ("lr-chep-mau-anh: ok=" + $e.ok + ", " + $e.so_anh + " ảnh mới; " + $e.anh[0].bao_cao)
+          if (-not $e.ok -or $e.so_anh -ne 2 -or -not (Test-Path "$x\Editer chep mau\Ảnh cưới Đức-editer.jpg")) { throw "lr-chep-mau-anh trả kết quả sai" }
+          dist/editer-anh/editer-anh.exe chep-mau-anh "$x\b.jpg" --mau "$env:RUNNER_TEMP\e2e\mau.jpg" --ra "$x\cli"
+          if (-not (Test-Path "$x\cli\b-editer.jpg")) { throw "chep-mau-anh (dòng lệnh) không ra ảnh" }
           dist/editer-anh/editer-anh.exe lr-cai
           if (-not (Test-Path "$env:APPDATA\Adobe\Lightroom\Modules\Editer.lrplugin\EditerLR.lua")) { throw "lr-cai không cài được plugin" }
           if (-not (Test-Path "dist/editer-anh/Editer.lrplugin/Info.lua")) { throw "thiếu plugin trong bản đóng gói" }

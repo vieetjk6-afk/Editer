@@ -95,6 +95,20 @@ function catalog:createCollection(name, parent, canReturnPrior)
   return c
 end
 function catalog:setActiveSources(src) fake.active = src end
+fake.added = {}
+function catalog:findPhotoByPath(path)
+  for _, p in ipairs(fake.added) do if p._path == path then return p end end
+  for _, p in ipairs(self.photos) do if p._path == path then return p end end
+  return nil
+end
+function catalog:addPhoto(path, stackWith, position)
+  assert(fake.inWrite, 'addPhoto phải nằm trong withWriteAccessDo')
+  assert(py_exists(path) == 'file', 'addPhoto: không có file ' .. tostring(path))
+  assert(not self:findPhotoByPath(path), 'addPhoto: ảnh đã có trong catalog')     -- Lightroom báo lỗi như vậy
+  local p = fake.photo(9000 + #fake.added, path, {}, 'JPG')
+  fake.added[#fake.added + 1] = p
+  return p
+end
 
 ---------------------------------------------------------------- mô-đun Lr*
 local Progress = {}
@@ -112,13 +126,19 @@ function Session:doExportOnCurrentTask()
   assert(st.LR_format == 'JPEG' and st.LR_export_destinationType == 'specificFolder', 'xuất JPEG vào thư mục')
   assert(not st.LR_reimportExportedPhoto, 'không được đưa ảnh dựng thử vào catalog')
   self.paths = {}
+  local used = {}
   for i, photo in ipairs(self.args.photosToExport) do
-    local name = (photo._path:match('[^/\\]*$')):gsub('%.[^.]*$', '') .. '.jpg'
+    local stem = (photo._path:match('[^/\\]*$')):gsub('%.[^.]*$', '')
+    local name, k = stem .. '.jpg', 2
+    while used[name] do name, k = stem .. '-' .. k .. '.jpg', k + 1 end    -- LR_collisionHandling = 'rename'
+    used[name] = true
     local out = st.LR_export_destinationPathPrefix .. '/' .. name
-    py_render(photo._path, require('EditerCore').encode(photo._settings), out, st.LR_size_maxWidth)
+    local size = st.LR_size_doConstrain == false and 0 or st.LR_size_maxWidth     -- 0: đầy đủ độ phân giải
+    py_render(photo._path, require('EditerCore').encode(photo._settings), out, size)
     self.paths[i] = out
   end
   fake.exports = (fake.exports or 0) + 1
+  fake.exported = (fake.exported or 0) + #self.args.photosToExport
 end
 function Session:renditions()
   local i = 0
@@ -126,7 +146,7 @@ function Session:renditions()
     i = i + 1
     if self.paths[i] then
       local path = self.paths[i]
-      return i, { waitForRender = function() return true, path end }
+      return i, { photo = self.args.photosToExport[i], waitForRender = function() return true, path end }
     end
   end
 end
@@ -153,13 +173,27 @@ local modules = {
     message = function(title, msg, kind) fake.messages[#fake.messages + 1] = { title = title, msg = msg, kind = kind } end,
     confirm = function(msg, info) fake.confirms[#fake.confirms + 1] = msg .. ' ' .. (info or '') return fake.confirm_answer end,
     attachErrorDialogToFunctionContext = function() end,
+    presentModalDialog = function(args) fake.modal = args return fake.modal_answer or 'ok' end,
   },
+  LrView = {
+    osFactory = function()
+      return setmetatable({}, { __index = function(_, k)
+        return function(_, t) local x = t or {} x._kind = k return x end
+      end })
+    end,
+    bind = function(k) return { bind = k } end,
+  },
+  LrBinding = { makePropertyTable = function() return {} end },
   LrFileUtils = {
     exists = function(p) return py_exists(p) end,                 -- 'file' | 'directory' | false
     createAllDirectories = function(p) py_mkdirs(p) return true end,
     delete = function(p) return py_delete(p) end,
     move = function(a, b) return py_move(a, b) end,
     files = function(dir)
+      local list, i = py_listdir(dir), 0
+      return function() i = i + 1 return list[i] end
+    end,
+    directoryEntries = function(dir)
       local list, i = py_listdir(dir), 0
       return function() i = i + 1 return list[i] end
     end,

@@ -14,7 +14,8 @@ datas = [
     (os.path.join(ROOT, "lightroom", "Editer.lrplugin"), os.path.join("lightroom", "Editer.lrplugin")),
 ]
 binaries = []
-hidden = ["win32com.client", "pythoncom", "pywintypes", "editer_anh.gui", "editer_anh.gui.api", "editer_anh.dongbo", "editer_anh.lightroom"]
+hidden = ["win32com.client", "pythoncom", "pywintypes", "editer_anh.gui", "editer_anh.gui.api", "editer_anh.dongbo", "editer_anh.lightroom",
+          "editer_anh.mauanh", "scipy.sparse.linalg", "scipy.interpolate", "PIL.ImageCms"]
 for pkg in ("sklearn", "rawpy", "onnxruntime", "webview", "pythonnet", "clr_loader"):
     try:
         d, b, h = collect_all(pkg)
