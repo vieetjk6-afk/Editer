@@ -11,6 +11,12 @@ BẠN XEM ẢNH BẰNG LIGHTROOM CLASSIC?  (lý do thường gặp của "không
  lưu thông số). Muốn thấy: trong Lightroom chọn các ảnh -> Metadata -> Read Metadata from Files (Đọc siêu
  dữ liệu từ tệp). Cách tiện hơn: dùng plugin bên dưới, Editer chỉnh thẳng trong catalog.
 
+BẢN 0.14.1 — sửa lỗi "An internal error has occurred: Can't get collection information after creating
+ collection inside the same withWriteAccessDo function" ở bước cuối của chép màu kiểu Evoto (đưa ảnh mới vào
+ Lightroom). Lỗi xảy ra SAU khi ảnh mới đã làm xong: ảnh vẫn nằm trong thư mục "Editer chep mau" cạnh ảnh gốc.
+ Muốn thấy ngay: bảng Folders, chuột phải thư mục ảnh gốc -> Synchronize Folder… -> Synchronize. Thanh tiến độ
+ giờ tự đóng cả khi có lỗi.
+
 MỚI Ở BẢN 0.14 — CHÉP MÀU KIỂU EVOTO (đổi màu trực tiếp trên ảnh, xuất ảnh mới)
  Trong Lightroom: chọn ảnh (Ctrl+A) -> Library -> Plug-in Extras -> "Editer: Chép màu kiểu Evoto (xuất ảnh
  mới)…" -> chọn 1 hoặc vài ảnh JPG mẫu (mỗi kiểu cảnh 1 ảnh càng tốt) -> chọn độ mạnh 20-100% (như thanh

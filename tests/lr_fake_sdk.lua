@@ -60,9 +60,17 @@ end
 ---------------------------------------------------------------- catalog
 local Collection = {}
 Collection.__index = Collection
-function Collection:getPhotos() return { unpack(self._photos) } end
+-- Như Lightroom thật (lỗi thật 0.14.0): bộ sưu tập vừa tạo trong một withWriteAccessDo thì chính lần ghi đó không
+-- đọc / sửa nó được
+local function bornCheck(c)
+  if fake.inWrite and c._born == fake.writeSeq then
+    error("Can't get collection information after creating collection inside the same withWriteAccessDo function")
+  end
+end
+function Collection:getPhotos() bornCheck(self) return { unpack(self._photos) } end
 function Collection:removePhotos(ps)
   assert(fake.inWrite)
+  bornCheck(self)
   local drop = {}
   for _, p in ipairs(ps) do drop[p] = true end
   local keep = {}
@@ -71,6 +79,7 @@ function Collection:removePhotos(ps)
 end
 function Collection:addPhotos(ps)
   assert(fake.inWrite)
+  bornCheck(self)
   for _, p in ipairs(ps) do self._photos[#self._photos + 1] = p end
 end
 
@@ -82,6 +91,7 @@ function catalog:getPath() return '/tmp/editer-test.lrcat' end
 function catalog:withWriteAccessDo(name, fn, opts)
   assert(not fake.inWrite, 'withWriteAccessDo lồng nhau')
   fake.inWrite = true
+  fake.writeSeq = (fake.writeSeq or 0) + 1
   fake.writes[#fake.writes + 1] = name
   local ok, err = pcall(fn)
   fake.inWrite = false
@@ -90,7 +100,7 @@ end
 function catalog:createCollection(name, parent, canReturnPrior)
   assert(fake.inWrite, 'createCollection phải nằm trong withWriteAccessDo')
   if fake.collections[name] and canReturnPrior then return fake.collections[name] end
-  local c = setmetatable({ name = name, _photos = {} }, Collection)
+  local c = setmetatable({ name = name, _photos = {}, _born = fake.writeSeq }, Collection)
   fake.collections[name] = c
   return c
 end

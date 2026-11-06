@@ -746,7 +746,14 @@ local function runHelperProgress(kind, job, progress, offset, total)
   return res
 end
 
+local chepMauAnh
+
 function M.chepMauAnh()
+  -- chạy trong functionContext: có lỗi giữa chừng thì thanh tiến độ vẫn tự đóng (không treo ở góc trên)
+  LrFunctionContext.callWithContext('Editer-chep-mau-kieu-evoto', function(context) chepMauAnh(context) end)
+end
+
+chepMauAnh = function(context)
   local catalog = LrApplication.activeCatalog()
   local photos = targetPhotos(catalog)
   local list, video = {}, 0
@@ -781,7 +788,7 @@ function M.chepMauAnh()
       for _, d in ipairs(dirs) do deleteDir(d) end
     end)
   end
-  local progress = LrProgressScope { title = 'Editer: chép màu kiểu Evoto' }
+  local progress = LrProgressScope { title = 'Editer: chép màu kiểu Evoto', functionContext = context }
   progress:setCancelable(true)
   local made, failed, stopped = {}, {}, false
   local CHUNK = M.CHUNK
@@ -823,24 +830,37 @@ function M.chepMauAnh()
     deleteDir(dir)
     if stopped then break end
   end
-  local imported, coll = 0, nil
+  local imported, coll, importErr = 0, nil, nil
   if opt.dua_vao and #made > 0 then
     progress:setCaption('Đưa ảnh mới vào Lightroom...')
-    catalog:withWriteAccessDo('Editer: thêm ảnh chép màu kiểu Evoto', function()
-      coll = catalog:createCollection(COLL_EVOTO, nil, true)
-      if coll then coll:removePhotos(coll:getPhotos()) end   -- bộ sưu tập chỉ giữ ảnh của lần chạy này
-      local add = {}
-      for _, n in ipairs(made) do
-        local p = catalog:findPhotoByPath(n.path)
-        if not p then
-          local ok, r = tpcall(function() return catalog:addPhoto(n.path) end)
-          if ok then p = r end
+    -- Lightroom KHÔNG cho đọc / sửa bộ sưu tập ngay trong lần ghi đã tạo ra nó (lỗi thật 0.14.0: "Can't get
+    -- collection information after creating collection inside the same withWriteAccessDo function") -> tách 3 lần
+    -- ghi: tạo bộ sưu tập; thêm ảnh mới vào catalog; xếp ảnh vào bộ sưu tập.
+    local add = {}
+    local okImp, e = tpcall(function()
+      catalog:withWriteAccessDo('Editer: bộ sưu tập chép màu kiểu Evoto', function()
+        coll = catalog:createCollection(COLL_EVOTO, nil, true)
+      end, { timeout = 30 })
+      catalog:withWriteAccessDo('Editer: thêm ảnh chép màu kiểu Evoto', function()
+        for _, n in ipairs(made) do
+          local p = catalog:findPhotoByPath(n.path)
+          if not p then
+            local ok, r = tpcall(function() return catalog:addPhoto(n.path) end)
+            if ok then p = r end
+          end
+          if p then add[#add + 1] = p end
         end
-        if p then add[#add + 1] = p end
-      end
+      end, { timeout = 60 })
       imported = #add
-      if coll and #add > 0 then coll:addPhotos(add) end
-    end, { timeout = 60 })
+      if coll and #add > 0 then
+        catalog:withWriteAccessDo('Editer: xếp ảnh chép màu vào bộ sưu tập', function()
+          local old = coll:getPhotos()                     -- bộ sưu tập chỉ giữ ảnh của lần chạy này
+          if old and #old > 0 then coll:removePhotos(old) end
+          coll:addPhotos(add)
+        end, { timeout = 30 })
+      end
+    end)
+    if not okImp then importErr = tostring(e) end
     if coll and imported > 0 then tpcall(function() catalog:setActiveSources { coll } end) end
   end
   progress:done()
@@ -852,6 +872,10 @@ function M.chepMauAnh()
       .. 'tên <tên ảnh>-editer.jpg. Ảnh gốc giữ nguyên.', #made, opt.do_manh, OUT_DIR)
     if imported > 0 then
       msg = msg .. string.format('\nĐã đưa %d ảnh mới vào bộ sưu tập "%s" để xem.', imported, COLL_EVOTO)
+    end
+    if importErr then
+      msg = msg .. '\n\nChưa đưa được ảnh mới vào Lightroom (' .. Core.cut(importErr, 200) .. '). Ảnh vẫn nằm trong '
+        .. 'thư mục "' .. OUT_DIR .. '": bảng Folders, chuột phải thư mục ảnh gốc → Synchronize Folder… để thấy.'
     end
     msg = msg .. '\n\nChưa ưng độ đậm nhạt: chạy lại với độ mạnh khác (ảnh mới thêm -2, -3..., không ghi đè).'
   end
