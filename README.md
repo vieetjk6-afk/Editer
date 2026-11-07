@@ -9,7 +9,7 @@ Hai tool AI chạy trên Windows cho thợ chụp/quay cưới và sự kiện:
 
 Cả hai điều khiển bằng chat. Ảnh RAW và footage gốc **không rời máy**.
 
-## Editer Ảnh (bản 0.15)
+## Editer Ảnh (bản 0.16)
 
 **Tải về:** tab **Releases** → **Editer Ảnh** (bản mới nhất) → `Editer-Anh-Windows.zip`.
 Giải nén rồi bấm đúp **`Editer Anh.exe`** để mở giao diện cửa sổ, có kéo thả ảnh/thư mục, xem
@@ -74,6 +74,13 @@ Có 4 chức năng:
      0.15: 2 bước — `buoc: phan-tich` trên ảnh nhỏ của cả lô (gộp ảnh mẫu thành một "gu", chia cảnh bằng
      `style.group_scenes`, mỗi cảnh một bảng màu từ điểm ảnh gộp, từng ảnh chỉ cân sáng theo da; kế hoạch ghi `.npz`)
      rồi `buoc: ap` trên ảnh đầy đủ từng đợt. Plugin đổi ảnh kết quả (-editer) đã chọn về ảnh gốc.
+     0.16: `editer_anh/acr.py` ghi bảng màu của từng cảnh (và một bảng chung cả lô) thành **hồ sơ màu sáng tạo**
+     (`crs:PresetType="Look"`, `crs:RGBTable` + `crs:Table_<MD5>`: bảng 17³ u16 lưu hiệu so với bảng đồng nhất, sRGB /
+     đường cong sRGB / cắt gam, Amount 0–2; zlib + base85 kiểu Adobe — định dạng của DNG SDK, đối chiếu từng byte với
+     hồ sơ RAWmakase (MIT) đã đo trên Camera Raw 18.7) + preset chọn hồ sơ đó, vào `%APPDATA%\Adobe\CameraRaw\Settings\Editer`.
+     Camera Raw áp bảng RGB sau thanh sáng tối / đường cong / HSL, trước Color Grading; hồ sơ sáng tạo thay chỗ
+     Adobe Color nên tool chép "nền" (LookTable, đường cong, CameraProfile) của hồ sơ ảnh đang dùng — từ
+     `photo:getDevelopSettings().Look` hoặc file hồ sơ Adobe trên máy — vào hồ sơ mới.
 
      Bước 1 `lr-canh` chia cảnh và đưa mỗi cảnh 1 ảnh vào bộ sưu tập để bạn chỉnh. `lr-cai` chép plugin vào
      `%APPDATA%\Adobe\Lightroom\Modules`, nơi Lightroom tự nạp. Mỗi lần mở giao diện, `lightroom.json` được

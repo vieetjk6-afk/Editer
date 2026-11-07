@@ -11,6 +11,29 @@ BẠN XEM ẢNH BẰNG LIGHTROOM CLASSIC?  (lý do thường gặp của "không
  lưu thông số). Muốn thấy: trong Lightroom chọn các ảnh -> Metadata -> Read Metadata from Files (Đọc siêu
  dữ liệu từ tệp). Cách tiện hơn: dùng plugin bên dưới, Editer chỉnh thẳng trong catalog.
 
+BẢN 0.16 — MÀU ĐÃ CHÉP THÀNH PRESET / HỒ SƠ MÀU CHO CAMERA RAW VÀ LIGHTROOM (dùng trên ảnh RAW)
+ Trong Lightroom: chọn ảnh (Ctrl+A) -> Library -> Plug-in Extras -> "Editer: Chép màu kiểu Evoto (ảnh mới / preset
+ Camera Raw)…" -> chọn ảnh JPG mẫu -> trong hộp thoại đánh dấu "Tạo hồ sơ màu + preset", đặt tên (vd "Cưới Hà").
+ Bỏ dấu "Xuất ảnh JPEG mới" nếu chỉ cần preset (nhanh: chỉ phân tích ảnh nhỏ).
+ Editer làm:
+ - HỒ SƠ MÀU (Profile) — bảng màu 3D đúng như lúc đổi màu ảnh JPEG, có thanh Amount 0-200% (độ đậm nhạt);
+ - PRESET cùng tên — bấm một lần là chọn hồ sơ màu đó.
+ Nhiều cảnh: "<tên> – cả lô" (một màu chung, dùng lại cho buổi chụp khác) + "<tên> – cảnh 1", "– cảnh 2"...
+ Cài sẵn vào thư mục Camera Raw / Lightroom: %APPDATA%\Adobe\CameraRaw\Settings\Editer (nhóm "Editer"). Bản sao
+ để mang sang máy khác: thư mục "Editer chep mau\Preset" cạnh ảnh gốc (máy khác: Develop -> Presets -> dấu + ->
+ Import Presets…, chọn các file .xmp đó).
+ Dùng: KHỞI ĐỘNG LẠI Lightroom / Photoshop -> Develop (hoặc Camera Raw) -> Profile -> Browse -> nhóm "Editer",
+ hoặc bảng Presets -> "Editer". Áp lên ảnh RAW rồi chỉnh tiếp như thường (WB, Exposure... vẫn chỉnh được; bảng màu
+ áp SAU các thanh sáng tối / đường cong / HSL, TRƯỚC Color Grading).
+ Lưu ý:
+ - Hồ sơ màu giữ "nền" Adobe Color (bảng màu + đường cong của Adobe Color) mà ảnh đang dùng, nên Amount 100% ra
+   đúng màu như ảnh JPEG Editer xuất. Không thấy hồ sơ nền trên máy thì hồ sơ đặt trên nền Adobe Standard (nhạt
+   hơn một chút) — hộp thoại kết quả có báo.
+ - Preset không mang phần cân sáng riêng từng ảnh: ảnh tối / sáng hơn cả cảnh thì chỉnh Exposure tay.
+ - Đặt lại đúng tên cũ thì preset cũ được thay bằng preset mới (không sinh thêm).
+ Dòng lệnh: editer-anh chep-mau-anh <ảnh JPG / thư mục> --mau <ảnh mẫu> --preset "Tên" [--chi-preset]
+ [--nen "Adobe Color" nếu ảnh JPG xuất từ Lightroom với hồ sơ Adobe Color và bạn muốn dùng preset cho ảnh RAW].
+
 BẢN 0.15 — CHÉP MÀU KIỂU EVOTO: CẢ LÔ MỘT MÀU, KHÔNG CHÉP CHỒNG (ảnh cháy, mỗi ảnh một màu ở 0.14.2)
  Nguyên nhân (theo nhật ký bạn gửi):
  - Lần chạy đó lấy chính ảnh KẾT QUẢ lần trước (VJK_xxxx-editer-2.jpg) làm ảnh vào -> chép màu 2 lần -> cháy. Sau

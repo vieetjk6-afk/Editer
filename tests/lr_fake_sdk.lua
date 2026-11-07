@@ -191,7 +191,11 @@ local modules = {
     message = function(title, msg, kind) fake.messages[#fake.messages + 1] = { title = title, msg = msg, kind = kind } end,
     confirm = function(msg, info) fake.confirms[#fake.confirms + 1] = msg .. ' ' .. (info or '') return fake.confirm_answer end,
     attachErrorDialogToFunctionContext = function() end,
-    presentModalDialog = function(args) fake.modal = args return fake.modal_answer or 'ok' end,
+    presentModalDialog = function(args)       -- test đặt giá trị các ô trong hộp thoại qua fake.modal_values
+      fake.modal = args
+      for k, v in pairs(fake.modal_values or {}) do if fake.props then fake.props[k] = v end end
+      return fake.modal_answer or 'ok'
+    end,
   },
   LrView = {
     osFactory = function()
@@ -201,7 +205,7 @@ local modules = {
     end,
     bind = function(k) return { bind = k } end,
   },
-  LrBinding = { makePropertyTable = function() return {} end },
+  LrBinding = { makePropertyTable = function() fake.props = {} return fake.props end },
   LrFileUtils = {
     exists = function(p) return py_exists(p) end,                 -- 'file' | 'directory' | false
     createAllDirectories = function(p) py_mkdirs(p) return true end,
@@ -216,7 +220,8 @@ local modules = {
       return function() i = i + 1 return list[i] end
     end,
   },
-  LrDate = { currentTime = function() return py_now() end },
+  LrDate = { currentTime = function() return py_now() end,
+             timeToUserFormat = function(t, fmt) return os.date(fmt) end },
   LrPathUtils = {
     child = function(a, b) return a .. '/' .. b end,
     parent = function(p) return (p:gsub('[/\\][^/\\]*$', '')) end,     -- như Lightroom: cả \ (Windows) lẫn /

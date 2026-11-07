@@ -737,9 +737,10 @@ def skin_L(a: np.ndarray, reg: np.ndarray | None) -> float | None:
     return float(np.median(lab[m, 0])) if m.sum() >= 60 else None
 
 
-def plan_scene(photos: list[Anh], ref: Mau, strength: float = 1.0, log=None) -> dict:
+def plan_scene(photos: list[Anh], ref: Mau, strength: float = 1.0, log=None, looks: list | None = None) -> dict:
     """MỘT bộ màu cho cả cảnh (gom điểm ảnh của mọi ảnh trong cảnh), từng ảnh chỉ cân lại độ sáng theo da cho đều
-    -> các ảnh cùng cảnh ra cùng một màu (lỗi thật 0.14.2: mỗi ảnh một màu vì mỗi ảnh tự khớp riêng)."""
+    -> các ảnh cùng cảnh ra cùng một màu (lỗi thật 0.14.2: mỗi ảnh một màu vì mỗi ảnh tự khớp riêng).
+    looks: nếu có, nhận thêm bộ màu chung của cảnh (chưa cân sáng từng ảnh) — để làm hồ sơ màu Camera Raw."""
     from PIL import Image
     Ls = [skin_L(p.small, p.reg) for p in photos]
     have = [v for v in Ls if v is not None]
@@ -767,6 +768,8 @@ def plan_scene(photos: list[Anh], ref: Mau, strength: float = 1.0, log=None) -> 
         mks.append({k: v[idx] for k, v in mk.items()})
     pooled_mk = {k: np.concatenate([m[k] for m in mks]) for k in mks[0]}
     kq = plan(np.concatenate(px)[None, :, :], np.concatenate(rg)[None, :], ref, strength, log, masks=pooled_mk)
+    if looks is not None:
+        looks.append(kq)
     grid = _grid()
     out = {}
     for p, g in zip(photos, gains):
@@ -821,8 +824,10 @@ def load_photos(entries, segment=None, embedder=None, log=print, progress=None, 
     return out
 
 
-def analyze(photos: list[Anh], refs: list[Mau], strength: float = 1.0, log=print) -> dict:
-    """Cả lô theo MỘT "gu" (gộp các ảnh mẫu bạn chọn), mỗi cảnh một bộ màu -> {i: KetQua}."""
+def analyze(photos: list[Anh], refs: list[Mau], strength: float = 1.0, log=print, looks: list | None = None) -> dict:
+    """Cả lô theo MỘT "gu" (gộp các ảnh mẫu bạn chọn), mỗi cảnh một bộ màu -> {i: KetQua}.
+    looks: nếu có, nhận bộ màu của từng cảnh {"canh", "anh", "table"} (+ "canh" 0 = một bộ chung cả lô khi có nhiều
+    cảnh) để xuất hồ sơ màu / preset cho Camera Raw, Lightroom."""
     if not photos:
         return {}
     ref = merge(refs) if len(refs) > 1 else refs[0]
@@ -834,11 +839,18 @@ def analyze(photos: list[Anh], refs: list[Mau], strength: float = 1.0, log=print
     out = {}
     for sc in sorted(set(scenes)):
         ps = [p for p, s in zip(photos, scenes) if s == sc]
-        res = plan_scene(ps, ref, strength)
+        got = [] if looks is not None else None
+        res = plan_scene(ps, ref, strength, looks=got)
         for p in ps:
             k = res[p.i]
             log(f"  cảnh {sc + 1}: {p.ten}: {k.bao_cao}" + (f" ({'; '.join(k.notes)})" if k.notes else ""))
         out.update(res)
+        if got:
+            looks.append({"canh": sc + 1, "anh": [p.ten for p in ps], "table": got[0].table})
+    if looks is not None and n_sc > 1:      # thêm một bộ chung cho cả lô: preset dùng lại cho buổi chụp khác
+        got = []
+        plan_scene(photos, ref, strength, looks=got)
+        looks.insert(0, {"canh": 0, "anh": [p.ten for p in photos], "table": got[0].table})
     return out
 
 

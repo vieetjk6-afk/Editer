@@ -1,4 +1,4 @@
--- Menu: Library / File → Plug-in Extras → Editer: Chép màu kiểu Evoto (xuất ảnh mới)
+-- Menu: Library / File → Plug-in Extras → Editer: Chép màu kiểu Evoto (ảnh mới / preset Camera Raw)
 local LrFunctionContext = import 'LrFunctionContext'
 local LrDialogs = import 'LrDialogs'
 local LrTasks = import 'LrTasks'

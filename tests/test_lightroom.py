@@ -497,6 +497,15 @@ def test_copy_pixels(tmp: Path) -> None:
         ex[0x0110] = "NIKON Z5_2"
         im.save(out, quality=100, exif=ex.tobytes())
 
+    # preset Camera Raw / Lightroom: thư mục cài preset giả + hồ sơ "Adobe Color" giả trên máy (nền của ảnh)
+    from test_acr import _fake_adobe_color
+    os.environ["EDITER_ACR_SETTINGS"] = str(tmp / "acr")
+    os.environ["EDITER_ADOBE_PROFILES"] = str(tmp / "adobe")
+    look_fp = _fake_adobe_color(tmp / "adobe")
+    look = {"Name": "Adobe Color", "Amount": 1, "UUID": "B952C231111CD8E0ECCF14B86BAA7077",
+            "Parameters": {"CameraProfile": "Adobe Standard", "LookTable": look_fp, "Version": "14.0",
+                           "ProcessVersion": "11.0", "ConvertToGrayscale": False,
+                           "ToneCurvePV2012": [0, 0, 22, 16, 40, 35, 255, 255]}}
     lua = lua_runtime()
     g = lua.globals()
     g.FAKE_HOME = str(Path.home())
@@ -513,8 +522,9 @@ def test_copy_pixels(tmp: Path) -> None:
     tab = lua.eval("function(s) return require('EditerCore').decode(s) end")
     photos = []
     for i, p in enumerate(paths):
+        st = {**lr_settings(5200, 4, 0.2, 10), "Look": look}
         photos.append(lua.eval("function(f, id, path, s) return f.photo(id, path, s) end")(
-            fake, 500 + i, str(p), tab(json.dumps(lr_settings(5200, 4, 0.2, 10)))))
+            fake, 500 + i, str(p), tab(json.dumps(st))))
     lua.eval("function(c, ps) for i, p in ipairs(ps) do c.photos[i] = p end end")(fake.catalog, lua.table_from(photos))
     before = [json.loads(lua.eval("function(p) return require('EditerCore').encode(p._settings) end")(ph)) for ph in photos]
     fake.open_panel_result = lua.table_from([str(tmp / "mau-evoto.jpg")])
@@ -528,6 +538,11 @@ def test_copy_pixels(tmp: Path) -> None:
     lua.execute("require('EditerLR').chepMauAnh()")
     msg = [m.msg for m in fake.messages.values()][-1]
     assert "Đã chép màu kiểu Evoto cho 4 ảnh (độ mạnh 100%)" in msg and "Đã đưa 4 ảnh mới" in msg, msg
+    # mặc định tạo luôn hồ sơ màu + preset (nhóm "Editer"), giữ nền Adobe Color của ảnh
+    assert "hồ sơ màu + preset cho Camera Raw / Lightroom" in msg and 'Giữ nền hồ sơ "Adobe Color"' in msg, msg
+    profiles = sorted((tmp / "acr" / "Editer").glob("*.xmp"))
+    assert profiles and all(look_fp in p.read_text(encoding="utf-8") for p in profiles), profiles
+    assert (folders[0] / "Editer chep mau" / "Preset").is_dir(), "bản sao preset cạnh ảnh gốc"
     # bước 1: ảnh nhỏ của cả lô (1 lần xuất) để phân tích; bước 2: ảnh đầy đủ 2 đợt (3 + 1 ảnh)
     assert fake.modal.title == "Editer: chép màu kiểu Evoto" and fake.exports == 3 and fake.exported == 8
     assert sizes == [1024] * 4 + [0] * 4, sizes
@@ -562,8 +577,25 @@ def test_copy_pixels(tmp: Path) -> None:
     for o in outs:
         assert o.with_name(o.stem + "-3.jpg").exists(), "ảnh mới phải từ ảnh gốc (-editer-3.jpg cạnh ảnh gốc)"
     assert not any(f.joinpath("Editer chep mau", "Editer chep mau").exists() for f in folders), "không chép chồng"
+    # chỉ tạo preset (bỏ "Xuất ảnh JPEG"): chỉ xuất ảnh nhỏ để phân tích, không ra ảnh mới; tên có dấu giữ nguyên
+    lua.eval("function(f) f.selection = nil end")(fake)
+    n_exports = fake.exports
+    fake.modal_values = lua.table_from({"xuat_anh": False, "ten_preset": "  Cưới Hà  "})
+    lua.execute("require('EditerLR').chepMauAnh()")
+    msg = [m.msg for m in fake.messages.values()][-1]
+    assert "hồ sơ màu + preset" in msg and "Cưới Hà" in msg and "Đã chép màu kiểu Evoto" not in msg, msg
+    assert fake.exports == n_exports + 1, "chỉ một lần xuất ảnh nhỏ để phân tích"
+    assert not any(o.with_name(o.stem + "-4.jpg").exists() for o in outs)
+    made = sorted(p.name for p in (tmp / "acr" / "Editer").glob("Cưới Hà*.xmp"))
+    assert made and all(n.startswith("Cưới Hà") for n in made) and any(n.endswith("(preset).xmp") for n in made), made
+    # bỏ chọn cả hai: nhắc chọn, không làm gì
+    fake.modal_values = lua.table_from({"xuat_anh": False, "tao_preset": False})
+    lua.execute("require('EditerLR').chepMauAnh()")
+    msg = [m.msg for m in fake.messages.values()][-1]
+    assert "Chọn ít nhất một việc" in msg and fake.exports == n_exports + 1, msg
+    fake.modal_values = None
     print("[lightroom] chép màu kiểu Evoto: phân tích cả lô + áp 2 đợt, 4 ảnh mới + bộ sưu tập, ảnh gốc giữ nguyên, "
-          "không ghi đè, chạy lại từ bộ sưu tập dùng ảnh gốc: OK")
+          "không ghi đè, chạy lại từ bộ sưu tập dùng ảnh gốc, preset Camera Raw (giữ nền Adobe Color), chỉ preset: OK")
 
 
 def test_copy_pixels_bad_folder(tmp: Path) -> None:

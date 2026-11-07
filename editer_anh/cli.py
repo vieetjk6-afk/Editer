@@ -366,11 +366,31 @@ def cmd_chep_mau_anh(a) -> dict:
         taken.add(str(d).lower())
         dsts.append(d)
     _log(f"Chép màu kiểu Evoto từ {len(a.mau)} ảnh mẫu cho {len(files)} ảnh (độ mạnh {a.do_manh}%)")
-    res = mauanh.run_batch(files, dsts, a.mau, max(0, min(100, a.do_manh)) / 100.0, a.chat_luong,
-                           not a.khong_ai, _log)
-    n = sum(1 for r in res if "ra" in r)
-    _log(f"XONG: {n} ảnh mới trong {dsts[0].parent if dsts else ''}")
-    return {"anh": res}
+    strength = max(0, min(100, a.do_manh)) / 100.0
+    if not (a.preset or a.chi_preset):
+        res = mauanh.run_batch(files, dsts, a.mau, strength, a.chat_luong, not a.khong_ai, _log)
+        n = sum(1 for r in res if "ra" in r)
+        _log(f"XONG: {n} ảnh mới trong {dsts[0].parent if dsts else ''}")
+        return {"anh": res}
+    from . import acr
+    segment, emb = mauanh._ai(not a.khong_ai, _log)
+    refs = mauanh.load_refs(a.mau, segment, emb if len(a.mau) > 1 else None, _log)
+    photos = mauanh.load_photos([(i, f, None) for i, f in enumerate(files)], segment, emb, _log)
+    looks: list = []
+    plans = mauanh.analyze(photos, refs, strength, _log, looks=looks)
+    base = None
+    if a.nen:
+        base = acr.find_look(a.nen)
+        if base:
+            base.notes.append(f"nền: hồ sơ {a.nen} ({base.source})")
+        else:
+            _log(f"  không thấy hồ sơ \"{a.nen}\" trên máy")
+    info = acr.export(looks, a.preset, base, dsts[0].parent / "Preset", a.mau, _log)
+    res = []
+    if not a.chi_preset:
+        res = mauanh.apply([(i, f, d) for i, (f, d) in enumerate(zip(files, dsts))], plans, a.chat_luong, _log)
+        _log(f"XONG: {sum(1 for r in res if 'ra' in r)} ảnh mới trong {dsts[0].parent}")
+    return {"anh": res, "preset": info}
 
 
 def cmd_lr_cai(a) -> dict:
@@ -577,6 +597,10 @@ def main(argv=None) -> None:
     e.add_argument("--ra", help="thư mục ảnh ra (mặc định: thư mục 'Editer chep mau' cạnh ảnh)")
     e.add_argument("--chat-luong", type=int, default=95, help="chất lượng JPEG (mặc định 95)")
     e.add_argument("--khong-ai", action="store_true", help="không dùng AI phân vùng (chỉ chỉnh chung cả ảnh)")
+    e.add_argument("--preset", metavar="TÊN", help="tạo thêm hồ sơ màu + preset cho Camera Raw / Lightroom, tên này")
+    e.add_argument("--chi-preset", action="store_true", help="chỉ tạo hồ sơ màu + preset, không xuất ảnh")
+    e.add_argument("--nen", metavar="HỒ SƠ", help='hồ sơ của ảnh lúc xuất JPG (vd "Adobe Color") để preset dùng đúng '
+                                                  "trên ảnh RAW; bỏ trống: preset cho ảnh JPG / TIFF")
     e.set_defaults(func=cmd_chep_mau_anh)
 
     li = sub.add_parser("lr-cai", help="cài plugin Editer vào Lightroom Classic")

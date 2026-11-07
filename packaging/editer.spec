@@ -15,7 +15,7 @@ datas = [
 ]
 binaries = []
 hidden = ["win32com.client", "pythoncom", "pywintypes", "editer_anh.gui", "editer_anh.gui.api", "editer_anh.dongbo", "editer_anh.lightroom",
-          "editer_anh.mauanh", "scipy.sparse.linalg", "scipy.interpolate", "PIL.ImageCms"]
+          "editer_anh.mauanh", "editer_anh.acr", "scipy.sparse.linalg", "scipy.interpolate", "PIL.ImageCms"]
 for pkg in ("sklearn", "rawpy", "onnxruntime", "webview", "pythonnet", "clr_loader"):
     try:
         d, b, h = collect_all(pkg)

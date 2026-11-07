@@ -612,40 +612,121 @@ local function deleteDir(dir)
   end)
 end
 
+local function presetName()
+  local ok, s = tpcall(function() return LrDate.timeToUserFormat(LrDate.currentTime(), '%d-%m %Hh%M') end)
+  return 'Editer ' .. ((ok and type(s) == 'string') and s or '')
+end
+
 local function askEvoto()
   local okv, LrView = pcall(import, 'LrView')
   local okb, LrBinding = pcall(import, 'LrBinding')
-  if not okv or not okb then return { do_manh = 100, dua_vao = true } end
+  if not okv or not okb then
+    return { do_manh = 100, dua_vao = true, xuat_anh = true, tao_preset = false, ten_preset = presetName() }
+  end
   local result
   LrFunctionContext.callWithContext('Editer-chep-mau-anh', function(context)
     local props = LrBinding.makePropertyTable(context)
     props.do_manh = 100
     props.dua_vao = true
+    props.xuat_anh = true
+    props.tao_preset = true
+    props.ten_preset = presetName()
     local f = LrView.osFactory()
     local contents = f:column {
       bind_to_object = props,
       spacing = f:control_spacing(),
-      f:static_text { title = 'Đổi màu trực tiếp trên ảnh theo ảnh mẫu — riêng da, áo, cây, trời, nền — rồi xuất ảnh '
-        .. 'JPEG mới.\nẢnh gốc và thông số Lightroom của ảnh gốc giữ nguyên.' },
+      f:static_text { title = 'Đổi màu theo ảnh mẫu — riêng da, áo, cây, trời, nền. Ảnh gốc và thông số Lightroom của '
+        .. 'ảnh gốc giữ nguyên.' },
       f:row {
         f:static_text { title = 'Độ mạnh:' },
         f:slider { value = LrView.bind('do_manh'), min = 20, max = 100, integral = true, width = 260 },
         f:edit_field { value = LrView.bind('do_manh'), min = 20, max = 100, precision = 0, width_in_digits = 4 },
         f:static_text { title = '%' },
       },
-      f:checkbox { title = 'Đưa ảnh mới vào Lightroom (bộ sưu tập "' .. COLL_EVOTO .. '")',
-                   value = LrView.bind('dua_vao') },
-      f:static_text { title = 'Ảnh mới: thư mục "' .. OUT_DIR .. '" cạnh ảnh gốc, tên <tên ảnh>-editer.jpg '
+      f:checkbox { title = 'Xuất ảnh JPEG mới (đổi màu trực tiếp trên ảnh)', value = LrView.bind('xuat_anh') },
+      f:checkbox { title = '    Đưa ảnh mới vào Lightroom (bộ sưu tập "' .. COLL_EVOTO .. '")',
+                   value = LrView.bind('dua_vao'), enabled = LrView.bind('xuat_anh') },
+      f:static_text { title = '    Ảnh mới: thư mục "' .. OUT_DIR .. '" cạnh ảnh gốc, tên <tên ảnh>-editer.jpg '
         .. '(chạy lại không ghi đè: -editer-2.jpg...).' },
+      f:checkbox { title = 'Tạo hồ sơ màu + preset cho Camera Raw / Lightroom (dùng trên ảnh RAW, chỉnh tiếp được)',
+                   value = LrView.bind('tao_preset') },
+      f:row {
+        f:static_text { title = '    Tên preset:' },
+        f:edit_field { value = LrView.bind('ten_preset'), width_in_chars = 30, enabled = LrView.bind('tao_preset') },
+      },
+      f:static_text { title = '    Trùng tên với lần trước thì preset cũ được thay bằng preset mới.' },
     }
     local r = LrDialogs.presentModalDialog { title = 'Editer: chép màu kiểu Evoto', contents = contents,
                                              actionVerb = 'Chép màu' }
     if r == 'ok' then
+      -- bỏ khoảng trắng đầu / cuối bằng ký tự cụ thể: %s của Lua theo bảng mã Windows coi byte 0xA0 là khoảng trắng
+      -- và cắt hỏng chữ có byte đó (vd "à" = C3 A0) — như lỗi bảng mã 0.13
       result = { do_manh = math.max(20, math.min(100, tonumber(props.do_manh) or 100)),
-                 dua_vao = props.dua_vao and true or false }
+                 dua_vao = props.dua_vao and true or false, xuat_anh = props.xuat_anh and true or false,
+                 tao_preset = props.tao_preset and true or false,
+                 ten_preset = tostring(props.ten_preset or ''):gsub('^[ \t\r\n]+', ''):gsub('[ \t\r\n]+$', '') }
+      if result.ten_preset == '' then result.ten_preset = presetName() end
     end
   end)
   return result
+end
+
+--- Bản sao chỉ gồm chữ / số / bảng (để gửi sang Editer dạng JSON).
+local function plain(v, depth)
+  depth = depth or 0
+  local t = type(v)
+  if t == 'string' or t == 'number' or t == 'boolean' then return v end
+  if t ~= 'table' or depth > 6 then return nil end
+  local out = {}
+  for k, x in pairs(v) do
+    if type(k) == 'string' or type(k) == 'number' then
+      local y = plain(x, depth + 1)
+      if y ~= nil then out[k] = y end
+    end
+  end
+  return out
+end
+
+--- Hồ sơ màu (Look) nhiều ảnh trong lô đang dùng nhất -> nền của hồ sơ màu Editer tạo ra.
+local function commonLook(list)
+  local count, best, bestN, kinds = {}, nil, 0, 0
+  for k, p in ipairs(list) do
+    if k > 300 then break end
+    local okS, s = tpcall(function() return p:getDevelopSettings() end)
+    local l = okS and type(s) == 'table' and s.Look or nil
+    local name = type(l) == 'table' and l.Name or l
+    if name ~= nil then
+      name = tostring(name)
+      if not count[name] then kinds = kinds + 1 end
+      count[name] = (count[name] or 0) + 1
+      if count[name] > bestN then best, bestN = l, count[name] end
+    end
+  end
+  local note
+  if kinds > 1 then
+    note = 'Ảnh trong lô dùng nhiều hồ sơ màu khác nhau — preset giữ nền "' .. tostring(type(best) == 'table'
+      and best.Name or best) .. '" của số đông.'
+  end
+  return plain(best), note
+end
+
+local function presetText(p, note)
+  if type(p) ~= 'table' then return nil end
+  if p.loi then return 'Chưa tạo được preset cho Camera Raw / Lightroom: ' .. Core.cut(tostring(p.loi), 200) end
+  local names = type(p.ten) == 'table' and p.ten or {}
+  if #names == 0 then return nil end
+  local s = string.format('Đã tạo %d hồ sơ màu + preset cho Camera Raw / Lightroom, nhóm "Editer":\n  %s\n'
+    .. 'Khởi động lại Lightroom (và Photoshop) để thấy: Develop → Profile → Browse → nhóm "Editer" (thanh Amount '
+    .. '0-200%%), hoặc bảng Presets → "Editer". Áp lên ảnh RAW rồi chỉnh tiếp như thường.\n'
+    .. 'Bản sao để mang sang máy khác: thư mục "%s\\Preset" cạnh ảnh gốc.', #names, table.concat(names, '\n  '),
+    OUT_DIR)
+  if p.nen and p.nen ~= '' then
+    s = s .. '\n(Giữ nền hồ sơ "' .. tostring(p.nen) .. '" mà ảnh đang dùng.)'
+  else
+    s = s .. '\n(Không thấy hồ sơ gốc của ảnh — hồ sơ màu đặt trên nền Adobe Standard, có thể nhạt hơn ảnh JPEG.)'
+  end
+  if note then s = s .. '\n' .. note end
+  return s
 end
 
 -- Xuất ảnh theo thông số hiện tại của ảnh (JPEG sRGB, giữ EXIF): size = nil -> đầy đủ độ phân giải, chất lượng cao
@@ -825,6 +906,11 @@ chepMauAnh = function(context)
   if not jpgs or #jpgs == 0 then return end
   local opt = askEvoto()
   if not opt then return end
+  if not opt.xuat_anh and not opt.tao_preset then
+    LrDialogs.message(TITLE, 'Chọn ít nhất một việc: xuất ảnh JPEG mới, hoặc tạo preset cho Camera Raw / Lightroom.',
+      'info')
+    return
+  end
   if not helperCmd() then
     LrDialogs.message(TITLE, 'Chưa tìm thấy chương trình Editer.\nMở "Editer Anh.exe" → mục "Dùng trong Lightroom" '
       .. '→ bấm "Cài vào Lightroom" (chỉ cần làm 1 lần), rồi chạy lại.', 'critical')
@@ -866,8 +952,15 @@ chepMauAnh = function(context)
   if not allTimes then                            -- thiếu giờ chụp ở vài ảnh: để Editer đọc EXIF cho mọi ảnh
     for _, a in ipairs(anhA) do a.thoi_gian = nil end
   end
+  local preset, lookNote
+  if opt.tao_preset then
+    local look
+    look, lookNote = commonLook(list)
+    preset = { ten = opt.ten_preset, look = look }
+  end
   local resA, errA = runHelperProgress('lr-chep-mau-anh', { buoc = 'phan-tich', mau_jpg = jpgs, do_manh = opt.do_manh,
-    ke_hoach = planPath, anh = anhA, ai = true }, progress, 0, #list, 'Editer phân tích cả lô: %d / %d ảnh...')
+    ke_hoach = planPath, anh = anhA, ai = true, preset = preset }, progress, 0, #list,
+    'Editer phân tích cả lô: %d / %d ảnh...')
   deleteDir(dirA)
   if not resA then
     progress:done()
@@ -875,6 +968,28 @@ chepMauAnh = function(context)
     return
   end
   if resA.dung_giua_chung then stopped = true end
+  local presetMsg = presetText(resA.preset, lookNote)
+  local notes = ''
+  if mapped > 0 then
+    notes = notes .. string.format('\n\n(%d ảnh bạn chọn là ảnh Editer đã chép màu — đã dùng ẢNH GỐC của chúng, không '
+      .. 'chép chồng.)', mapped)
+  end
+  if lost > 0 then
+    notes = notes .. string.format('\n\n(Bỏ qua %d ảnh Editer đã chép màu mà không tìm thấy ảnh gốc.)', lost)
+  end
+  if video > 0 then notes = notes .. string.format('\n\n(Bỏ qua %d video.)', video) end
+  if not opt.xuat_anh then
+    deleteFile(planPath)
+    progress:done()
+    local ok = type(resA.preset) == 'table' and type(resA.preset.ten) == 'table' and #resA.preset.ten > 0
+    local msg = presetMsg or 'Chưa tạo được preset (không có ảnh nào phân tích được).'
+    if stopped then msg = msg .. '\n\n(Đã dừng giữa chừng theo yêu cầu.)' end
+    if #failed > 0 then
+      msg = msg .. string.format('\n\nKhông xuất được %d ảnh: %s', #failed, Core.cut(table.concat(failed, '; '), 300))
+    end
+    LrDialogs.message(TITLE, msg .. notes, ok and 'info' or 'critical')
+    return
+  end
   local skip = {}
   for _, i in ipairs(resA.thieu or {}) do skip[i] = true end
   local list2 = {}
@@ -977,19 +1092,12 @@ chepMauAnh = function(context)
     end
     msg = msg .. '\n\nChưa ưng độ đậm nhạt: chạy lại với độ mạnh khác (ảnh mới thêm -2, -3..., không ghi đè).'
   end
+  if presetMsg then msg = msg .. '\n\n' .. presetMsg end
   if stopped then msg = msg .. '\n\n(Đã dừng giữa chừng theo yêu cầu.)' end
   if #failed > 0 then
     msg = msg .. string.format('\n\nKhông làm được %d ảnh: %s', #failed, Core.cut(table.concat(failed, '; '), 300))
   end
-  if mapped > 0 then
-    msg = msg .. string.format('\n\n(%d ảnh bạn chọn là ảnh Editer đã chép màu — đã dùng ẢNH GỐC của chúng, không '
-      .. 'chép chồng.)', mapped)
-  end
-  if lost > 0 then
-    msg = msg .. string.format('\n\n(Bỏ qua %d ảnh Editer đã chép màu mà không tìm thấy ảnh gốc.)', lost)
-  end
-  if video > 0 then msg = msg .. string.format('\n\n(Bỏ qua %d video.)', video) end
-  LrDialogs.message(TITLE, msg, #made > 0 and 'info' or 'critical')
+  LrDialogs.message(TITLE, msg .. notes, #made > 0 and 'info' or 'critical')
 end
 
 function M.huongDan()
@@ -1002,10 +1110,12 @@ function M.huongDan()
     .. 'Mỗi ảnh lấy ĐÚNG thông số ảnh bạn chỉnh cùng cảnh; nhiệt độ màu giữ như ảnh mẫu (chỉ dịch khi ánh '
     .. 'sáng đổi thật); độ sáng cân theo da người + ISO / tốc độ / khẩu. Không mang sang: khung cắt, phối cảnh, '
     .. 'xoá vết, cọ tô, gradient. Ảnh bạn đã chỉnh không bị đụng tới. Chỉnh thêm rồi chạy lại bước 2 bao nhiêu '
-    .. 'lần cũng được.\n\nCHÉP MÀU KIỂU EVOTO: chọn ảnh (Ctrl+A) → "Editer: Chép màu kiểu Evoto (xuất ảnh mới)…" → '
+    .. 'lần cũng được.\n\nCHÉP MÀU KIỂU EVOTO: chọn ảnh (Ctrl+A) → "Editer: Chép màu kiểu Evoto (ảnh mới / preset Camera Raw)…" → '
     .. 'chọn ảnh JPG mẫu → chọn độ mạnh. Editer đổi màu trực tiếp trên ảnh (riêng da, áo, cây, trời, nền), ghi ảnh '
     .. 'JPEG mới vào thư mục "' .. OUT_DIR .. '" cạnh ảnh gốc và đưa vào bộ sưu tập "' .. COLL_EVOTO .. '". Ảnh gốc '
-    .. 'giữ nguyên.\n\nCHÉP MÀU BẰNG THANH TRƯỢT: "Editer: Chép màu từ ảnh JPG mẫu (thanh trượt Lightroom)…" — chỉnh '
+    .. 'giữ nguyên. Đánh dấu "Tạo hồ sơ màu + preset" thì Editer làm thêm hồ sơ màu (Profile, có thanh Amount) + '
+    .. 'preset nhóm "Editer" để dùng màu đó trên ảnh RAW trong Lightroom / Camera Raw (khởi động lại để thấy).'
+    .. '\n\nCHÉP MÀU BẰNG THANH TRƯỢT: "Editer: Chép màu từ ảnh JPG mẫu (thanh trượt Lightroom)…" — chỉnh '
     .. 'thẳng thông số trong catalog (sửa tiếp được) nhưng kém hơn kiểu Evoto. Chép màu xong, chỉnh lại 1 ảnh mỗi '
     .. 'cảnh cho ưng rồi chạy bước 2.'
     .. '\n\nNhật ký: ' .. logPath(), 'info')

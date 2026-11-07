@@ -396,13 +396,21 @@ def run_copy_pixels(job: dict, log=print, workers: int = 8, use_ai: bool = True)
         ref_ms = mauanh.load_refs(refs, segment, emb if len(refs) > 1 else None, log)
         photos = mauanh.load_photos([(it.get("i"), it["vao"], it.get("thoi_gian")) for it in items], segment, emb,
                                     log, progress if buoc else None, cancel)
-        plans = mauanh.analyze(photos, ref_ms, strength, log)
+        want = job.get("preset") if isinstance(job.get("preset"), dict) else None
+        looks = [] if want else None
+        plans = mauanh.analyze(photos, ref_ms, strength, log, looks=looks)
+        preset = _export_preset(want, looks, items, refs, log) if (want and looks and not cancel()) else None
         if buoc == "phan-tich":
             if job.get("ke_hoach"):
                 mauanh.save_plan(job["ke_hoach"], plans)
             missing = [it.get("i") for it in items if it.get("i") not in plans]
             return {"ok": True, "phien_ban": __version__, "so_anh": len(plans), "thieu": missing,
+                    "dung_giua_chung": bool(cancel()), "preset": preset}
+        if want and job.get("chi_preset"):
+            return {"ok": True, "phien_ban": __version__, "anh": [], "so_anh": 0, "preset": preset,
                     "dung_giua_chung": bool(cancel())}
+    else:
+        preset = None
     if plans is None:
         plans = mauanh.load_plan(job["ke_hoach"])
     work, bad = [], []
@@ -424,7 +432,26 @@ def run_copy_pixels(job: dict, log=print, workers: int = 8, use_ai: bool = True)
     stopped = len(res) < len(work)
     log(f"XONG: {n_ok} ảnh mới" + (f", {len(out) - n_ok} ảnh lỗi" if len(out) > n_ok else "")
         + (" (đã dừng giữa chừng)" if stopped else ""))
-    return {"ok": True, "phien_ban": __version__, "anh": out, "so_anh": n_ok, "dung_giua_chung": stopped}
+    res = {"ok": True, "phien_ban": __version__, "anh": out, "so_anh": n_ok, "dung_giua_chung": stopped}
+    if preset:
+        res["preset"] = preset
+    return res
+
+
+def _export_preset(want: dict, looks: list, items: list, refs: list, log) -> dict:
+    """Hồ sơ màu + preset cho Camera Raw / Lightroom từ bộ màu vừa phân tích (nền = hồ sơ ảnh đang dùng)."""
+    from . import acr
+    try:
+        log("Tạo hồ sơ màu + preset cho Camera Raw / Lightroom...")
+        base = acr.base_from_lr(want.get("look"))
+        goc = next((it.get("goc") for it in items if it.get("goc")), None)
+        copy_to = Path(goc).parent / OUT_DIR / "Preset" if goc else None
+        return acr.export(looks, want.get("ten"), base, copy_to, refs, log)
+    except Exception as e:   # không tạo được preset không làm hỏng việc chép màu ảnh
+        import traceback
+        traceback.print_exc()
+        log(f"  LỖI tạo preset: {type(e).__name__}: {e}")
+        return {"loi": f"{type(e).__name__}: {e}"}
 
 
 def run_job(kind: str, job_path: str, out_path: str, log=print, workers: int = 8, use_ai: bool = True) -> dict:
